@@ -492,18 +492,30 @@
 
 ; --- files -----------------------------------------------------------------------
 
-(def %env (fn (_ name) ((fn (_ v) (if (null? v) () (if (str=? v "") () v))) (Sys getenv name))))
+; The environment variable NAME, or () when it is unset or empty.
+(def chess-env (fn (_ name) ((fn (_ v) (if (null? v) () (if (str=? v "") () v))) (Sys getenv name))))
+
+; The directory x-chess keeps what it makes in, $XDG_CACHE_HOME/x-chess
+; or ~/.cache/x-chess, or () when there is none to name.
+(def chess-cache-dir
+  (fn (_)
+    (def cache (chess-env "XDG_CACHE_HOME"))
+    (def home (chess-env "HOME"))
+    (match ((not (null? cache)) (Str8 append cache "/x-chess"))
+           ((not (null? home)) (Str8 append home "/.cache/x-chess"))
+           (#t ()))))
+
+; Make DIR, and ~/.cache before it, where they are not there.
+(def chess-dir-make!
+  (fn (_ dir)
+    (unless (null? (chess-env "HOME")) (guard (e ()) (File mkdir (Str8 append (chess-env "HOME") "/.cache"))))
+    (guard (e ()) (File mkdir dir))))
 
 ; The directory tables are kept in, or () when there is none to name.
 (def tables-dir
   (fn (_)
-    (def own (%env "X_CHESS_TABLES"))
-    (def cache (%env "XDG_CACHE_HOME"))
-    (def home (%env "HOME"))
-    (match ((not (null? own)) own)
-           ((not (null? cache)) (Str8 append cache "/x-chess"))
-           ((not (null? home)) (Str8 append home "/.cache/x-chess"))
-           (#t ()))))
+    (def own (chess-env "X_CHESS_TABLES"))
+    (if (null? own) (chess-cache-dir) own)))
 
 (def %path (fn (_ dir name) (Str8 append dir "/" name ".tb")))
 
@@ -550,8 +562,7 @@
           (def w (obj-ref tb 3))
           (def b (obj-ref tb 4))
           (%copy (fn (_ i) (ptr-set! p i (obj-ref w (int+ i 1)) 1) (ptr-set! p (int+ i n) (obj-ref b (int+ i 1)) 1)) 0 n)
-          (guard (e ()) (File mkdir (Str8 append (Sys getenv "HOME") "/.cache")))
-          (guard (e ()) (File mkdir dir))
+          (chess-dir-make! dir)
           (def fd (File open (%path dir name) (list (lit wronly) (lit creat) (lit trunc))))
           (when (int< -1 fd)
             (File write fd buf (int* n 2))
@@ -706,4 +717,4 @@
     (match ((int= side strong) (%get (obj-ref tb 3) i))
            (#t (int- 0 (%get (obj-ref tb 4) i))))))
 
-(provide chess/tables tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe)
+(provide chess/tables chess-env chess-cache-dir chess-dir-make! tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe)

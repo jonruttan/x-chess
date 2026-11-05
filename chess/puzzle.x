@@ -94,6 +94,10 @@
   (fn (_ r low high)
     (if (= r 0) #t (if (if (= low 0) #t (< (- low 1) r)) (if (= high 0) #t (< r (+ high 1))) #f))))
 
+; Whether puzzle Z has THEME and is rated from LOW to HIGH, as
+; puzzle-file-source takes them.
+(def puzzle-in? (fn (_ z theme low high) (if (puzzle-has? z theme) (%rated? (puzzle-rating z) low high) #f)))
+
 ; --- the set ------------------------------------------------------------------------
 ;
 ; Each entry: the FEN, the solution, the name, the themes; easiest first.
@@ -173,7 +177,7 @@
 ; The lines of the file at PATH, read a block at a time as they are asked
 ; for: a function answering the next, or () after the last.  Raises an
 ; io Err when the file cannot be opened.
-(def %line-source
+(def puzzle-lines
   (fn (_ path)
     (def fd (File open path (lit rdonly)))
     (when (< fd 0) (Err raise (lit io) (Str8 append "cannot open " path) path))
@@ -210,7 +214,7 @@
 ; when the file cannot be opened.
 (def puzzle-file-source
   (fn (_ path theme low high)
-    (def line (%line-source path))
+    (def line (puzzle-lines path))
     (def needle (if (str=? theme "mate") "mateIn" theme))
     (fn (self)
       (def l (line))
@@ -228,7 +232,7 @@
     (fn (self)
       ((fn (_ z)
          (match ((null? z) ())
-                ((if (puzzle-has? z theme) (%rated? (puzzle-rating z) low high) #f) z)
+                ((puzzle-in? z theme low high) z)
                 (#t (self))))
        (source)))))
 
@@ -289,4 +293,4 @@
 
 (provide chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library
-  puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source)
+  puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source puzzle-in? puzzle-lines)

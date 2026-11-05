@@ -85,6 +85,10 @@ export SPEC_SEAM_COLLECT=0
 # x-cc, x-infocom, x-r5rs and x-r7rs set the same knob.
 export SPEC_BATCH="${SPEC_BATCH:-1}"
 
+# The puzzles finished are recorded nowhere: a spec reads and writes a
+# record of its own, never the one in ~/.cache/x-chess.
+X_CHESS_RECORD=/dev/null; export X_CHESS_RECORD
+
 # A spec file's time limit.  13-tables builds the three endgame tables,
 # about 190 s of processor time on an M-series Mac and more on a hosted
 # Linux runner.  x-python sets the same knob.
