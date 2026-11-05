@@ -55,3 +55,22 @@
                  ((Str8 starts? "  " l) (cut-stats l))
                  (#t l)))
         (Str8 split "\n" text)))))
+
+; The board interface's helpers: ROWS of SCREEN as text, right-trimmed
+; and joined by newlines; ST drawn on SCREEN, the heap collected first,
+; as the interface's loop does; KEYS pressed in ST; and ST's moves in
+; long algebraic.
+(import x/tui/screen)
+
+(def spec-rows
+  (fn (_ screen rows)
+    (Str8 join "\n" (List map (fn (_ i) (Str8 trim-right (Screen row-text screen i))) rows))))
+
+(def spec-draw!
+  (fn (_ st screen)
+    (Heap collect)
+    (tui-draw! st screen)))
+
+(def spec-keys! (fn (_ st keys) (List for-each (fn (_ k) (tui-key! st k)) keys)))
+
+(def spec-moves (fn (_ st) (List map move-uci (game-moves (tui-game st)))))

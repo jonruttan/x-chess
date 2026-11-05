@@ -28,16 +28,19 @@
 (import chess/play play-run)
 (import chess/player player-builtin player-start player-quit!)
 (import chess/match match-run)
+(import chess/app app-run)
 (import x/sys/date)
 
 (def %usage
   (Str8 join "\n"
-    (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD]"
+    (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters]"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
           "       x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]"
           ""
-          "A game against the engine on a terminal; help lists the commands there."
+          "A game against the engine on a terminal, the board filling it (? lists the keys);"
+          "--line plays it a line at a time instead (help lists the commands), --letters draws"
+          "the pieces as letters."
           "Fed lines, it speaks UCI when the first is `uci`, else plays them as moves."
           "--engine plays a UCI engine, CMD its program and arguments, in place of x-chess."
           "--match plays games between two engines (x-chess the first unless two are named),"
@@ -52,6 +55,8 @@
         (pair "--both" (pair (lit side) (lit both)))
         (pair "--uci" (pair (lit uci) #t))
         (pair "--think" (pair (lit think) #t))
+        (pair "--line" (pair (lit line) #t))
+        (pair "--letters" (pair (lit letters) #t))
         (pair "--help" (pair (lit help) #t))
         (pair "-h" (pair (lit help) #t))
         (pair "--version" (pair (lit version) #t))))
@@ -157,7 +162,8 @@
       (if (null? (%opt opts (lit side))) () (list (pair (lit side) (%opt opts (lit side)))))
       (if (null? secs) () (list (pair (lit ms) (* secs 1000))))
       (if (null? (%opt opts (lit depth))) () (list (pair (lit depth) (%opt opts (lit depth)))))
-      (if (null? (%opt opts (lit think))) () (list (pair (lit think) #t))))))
+      (if (null? (%opt opts (lit think))) () (list (pair (lit think) #t)))
+      (if (null? (%opt opts (lit letters))) () (list (pair (lit letters) #t))))))
 
 ; The --engine commands in OPTS, in the order given.
 (def %engines
@@ -169,11 +175,12 @@
   (fn (_) (Str8 replace "-" "." (Str8 slice 0 10 (Date ->iso (Date local (Sys now)))))))
 
 (def %game-session
-  (fn (_ io opts first-line)
+  (fn (_ io opts first-line board)
     (def engines (%engines opts))
     (guard (e (do (%say 2 (Str8 append "x-chess: " (e msg) "\n")) 2))
       (do (def pl (player-start (if (null? engines) () (first engines))))
-          (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line)))))
+          (if board (app-run (pair (pair (lit engine) pl) (%game-opts opts)))
+            (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line))))))
 
 (def %session
   (fn (_ opts)
@@ -184,11 +191,11 @@
     (def io (%io tty))
     (match
       ((not (null? (%opt opts (lit uci)))) (uci-run io ()))
-      (tty (%game-session io opts ()))
+      (tty (%game-session io opts () (null? (%opt opts (lit line)))))
       (#t ((fn (_ line)
              (match ((null? line) 0)
                     ((str=? (Str8 trim line) "uci") (uci-run io line))
-                    (#t (%game-session io opts line))))
+                    (#t (%game-session io opts line #f))))
            (%pipe-line))))))
 
 ; --match: the PGN on standard output, the score on standard error.

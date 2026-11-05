@@ -20,6 +20,9 @@
 (import chess/player player-builtin player-start player-name player-builtin? player-think
   player-new-game! player-quit!)
 (import chess/match match-run)
+(import chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
+  tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!)
+(import chess/app app-run)
 (import chess/show show-board)
 (import chess/engine engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
   engine-option! engine-new-game! engine-think engine-info-report)
@@ -39,7 +42,9 @@
   move-san moves-san move-parse
   game-new game-pos game-start game-fen game-moves game-play! game-undo! game-repeats game-result game-movetext
   game-pgn player-builtin player-start player-name player-builtin? player-think player-new-game! player-quit!
-  match-run
+  match-run tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
+  tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
+  app-run
   show-board chess-version uci-run uci-think-ms play-run chess-main chess-options
   engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
   engine-option! engine-new-game! engine-think engine-info-report)
