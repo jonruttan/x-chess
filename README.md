@@ -4,7 +4,8 @@ A chess engine on x-lang, as a lang bundle: a game against the engine
 at the terminal, and the Universal Chess Interface for chess GUIs and
 other engines.
 
-    x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters]
+    x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]
+    x -l chess -- --puzzle | --puzzles FILE
     x -l chess -- --uci
     x -l chess -- --perft N [--fen FEN]
     x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]
@@ -39,13 +40,38 @@ commands:
     l        analyse: the engine thinks until a key is pressed, and both
              sides are yours
     t        show or hide the thinking
+    z        puzzles (below)
+    j        the coach, on or off (below)
     [ ]      back and forward through the game; Home, End
     p        letters or figures for the pieces (also --letters)
     ?        the keys
     q        quit
 
 and `:` takes a command: `fen FEN`, `time S`, `depth N`, `engine CMD`,
-`save FILE` (the game as PGN), `white`, `black`, `both`, `new`.
+`save FILE` (the game as PGN), `white`, `black`, `both`, `new`,
+`puzzle [FILE]`, `coach`.
+
+## Puzzles
+
+`--puzzle`, `z` on the board, or `:puzzle` sets the puzzles made for
+x-chess, mates in one and two; `--puzzles FILE` or `:puzzle FILE` sets
+those of FILE, a CSV in the form of the lichess puzzle database
+(<https://database.lichess.org/#puzzles>), read a block at a time as
+the puzzles are asked for.  You play the side to move.  A right move is
+answered with the solution's reply; a move that mates where the
+solution mates is right too.  In a puzzle, `i` marks the solution's
+next move, `m` makes it for you, `z` goes on to the next puzzle and `n`
+leaves the puzzles for a new game.  A puzzle counts as solved when it
+was solved with no wrong move, hint or move shown.
+
+## The coach
+
+`--coach`, `j` or `:coach` has the engine judge your moves.  When the
+engine moves, the second move of its line is the reply it expects of
+you, and its score the one it expects to see when it next moves.  Its
+next score, less that, is what your move cost: from 0.70 of a pawn an
+inaccuracy, from 1.50 a mistake, from 3 a blunder, and the move it
+expected is named.
 
 ## Playing a line at a time
 
