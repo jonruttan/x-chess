@@ -34,7 +34,7 @@
 (import chess/san move-san moves-san move-parse)
 (import chess/player player-builtin player-start player-name player-quit!)
 (import chess/puzzle puzzle-fen puzzle-title puzzle-rating puzzle-solution puzzle-judge puzzle-set
-  puzzle-list-source puzzle-file-source puzzle-has? puzzle-filter puzzle-range)
+  puzzle-list-source puzzle-file-source puzzle-filter puzzle-range puzzle-library)
 
 (def %game 0)
 (def %view 1)       ; the side at the bottom: 0 white, 8 black
@@ -65,7 +65,8 @@
 (def %coach 26)       ; whether your moves are judged
 (def %expect 27)      ; the reply the engine expects of you: (score move . san), or ()
 (def %choose 28)      ; whether the choice of puzzles is shown
-(def %slots 29)
+(def %band 29)        ; the rating band the choice picks from, an index of %bands
+(def %slots 30)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -99,6 +100,7 @@
     (%put! st %hint 0)
     (%put! st %coach (opt (lit coach) #f))
     (%put! st %choose #f)
+    (%put! st %band 0)
     (unless (null? (opt (lit puzzles) ())) (tui-puzzles! st (opt (lit puzzles) ())))
     st))
 
@@ -360,24 +362,56 @@
   (fn (_ st)
     (if (null? (%get st %puzzle)) (%put! st %choose #t) (%next-puzzle! st))))
 
-; The choice z offers: the key, the theme (as puzzle-has? takes it), and
-; what is said of it.
+; The choice z offers of the library's puzzles: the key, the theme (as
+; puzzle-file-source takes it), and what is said of it.
 (def %choices
   (list (list "1" "mateIn1" "Mate in one")
         (list "2" "mateIn2" "Mate in two")
         (list "3" "mateIn3" "Mate in three")
-        (list "w" "crushing" "Win material: forks, pins, skewers")
-        (list "a" "" "All of them, the easiest first")))
+        (list "4" "mateIn4" "Mate in four")
+        (list "5" "mateIn5" "Mate in five")
+        (list "f" "fork" "Forks")
+        (list "p" "pin" "Pins")
+        (list "s" "skewer" "Skewers")
+        (list "d" "discoveredAttack" "Discovered attacks")
+        (list "t" "trappedPiece" "Trapped pieces")
+        (list "h" "hangingPiece" "Pieces left hanging")
+        (list "e" "endgame" "Endgames")
+        (list "a" "" "All of them")))
 
-; The built-in puzzles THEME picks, in the set's order.
-(def %chosen (fn (_ theme) (List filter (fn (_ z) (puzzle-has? z theme)) (puzzle-set))))
+; The rating bands < and > step through: what is said, low, high.
+(def %bands
+  (list (list "any rating" 0 0) (list "rated below 1000" 0 999) (list "rated 1000 to 1399" 1000 1399)
+        (list "rated 1400 to 1799" 1400 1799) (list "rated 1800 to 2199" 1800 2199)
+        (list "rated 2200 and up" 2200 0)))
 
-; KEY pressed with the choice shown.
+; Puzzles of THEME from the library, in the band chosen, easiest first:
+; a source.  Raises when the library cannot be read.
+(def %chosen
+  (fn (_ st theme)
+    (def b (List ref (%get st %band) %bands))
+    (def lib (puzzle-library))
+    (when (null? lib) (Err raise (lit io) "the puzzle library is not there" ()))
+    (puzzle-file-source lib theme (List ref 1 b) (List ref 2 b))))
+
+; Set the puzzles of THEME the choice picks, or say why there are none.
+(def %start-chosen!
+  (fn (_ st theme)
+    (guard (e (%put! st %msg (Str8 append "x-chess: " (if (Err err? e) (e msg) (io-display-to-str e)))))
+      (tui-puzzles! st (%chosen st theme)))))
+
+; KEY pressed with the choice shown: < and > another band, x the built-in
+; puzzles, a theme's key its puzzles; any other closes the choice.
 (def %choose-key!
   (fn (_ st key)
     (def c (if (str? key) (List find (fn (_ c) (str=? (first c) key)) %choices) ()))
-    (%put! st %choose #f)
-    (unless (null? c) (tui-puzzles! st (puzzle-list-source (%chosen (List ref 1 c)))))))
+    (match
+      ((if (%is? key "<") #t (eq? key (lit left))) (%put! st %band (%max 0 (- (%get st %band) 1))))
+      ((if (%is? key ">") #t (eq? key (lit right)))
+        (%put! st %band (%min (- (List length %bands) 1) (+ (%get st %band) 1))))
+      ((%is? key "x") (do (%put! st %choose #f) (tui-puzzles! st (puzzle-list-source (puzzle-set)))))
+      ((null? c) (%put! st %choose #f))
+      (#t (do (%put! st %choose #f) (%start-chosen! st (List ref 1 c)))))))
 
 ; The puzzles of :puzzles FILE [THEME] [LOW-HIGH], as WORDS: a source.
 (def %file-puzzles
@@ -386,7 +420,7 @@
     (def range-word (List find (fn (_ w) (not (null? (puzzle-range w)))) more))
     (def theme (List find (fn (_ w) (null? (puzzle-range w))) more))
     (def range (if (null? range-word) (pair 0 0) (puzzle-range range-word)))
-    (puzzle-filter (puzzle-file-source (first words)) (if (null? theme) "" theme) (first range) (rest range))))
+    (puzzle-file-source (first words) (if (null? theme) "" theme) (first range) (rest range))))
 
 ; Your move M in the puzzle, LEAD said before what follows when it is right.
 (def %puzzle-move!
@@ -619,7 +653,7 @@
                 (%put! st %msg (Str8 append "The engine is " (player-name pl) "."))))))
       ((str=? cmd "coach") (%coach! st))
       ((str=? cmd "puzzle")
-        (if (str=? arg "") (%put! st %choose #t) (tui-puzzles! st (puzzle-list-source (%chosen arg)))))
+        (if (str=? arg "") (%put! st %choose #t) (%start-chosen! st arg)))
       ((str=? cmd "puzzles")
         (if (str=? arg "") (%put! st %msg "puzzles takes a file, then a theme and a rating range if you like")
           (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg))))
@@ -984,19 +1018,16 @@
                  (#t %puzzle-keys-line))
           (Style make (if (if (null? (%get st %command)) (str=? (%get st %input) "") #f) (list (lit dim)) ()) () ()))
         (when (%get st %help) (%draw-help! screen))
-        (when (%get st %choose) (%draw-choice! screen))))))
+        (when (%get st %choose) (%draw-choice! st screen))))))
 
-; The choice of puzzles z shows, each with how many there are.
+; The choice of puzzles z shows, in the band chosen.
 (def %draw-choice!
-  (fn (_ screen)
+  (fn (_ st screen)
     (def lines
-      (List append (list "Puzzles" "")
-        (List map (fn (_ c)
-                    (Str8 append (first c) "   " (List ref 2 c) " ("
-                      (io-display-to-str (List length (%chosen (List ref 1 c)))) ")"))
-          %choices)
-        (list "" "Any other key: back to the game.")))
-    (%draw-box! screen 50 lines)))
+      (List append (list (Str8 append "Puzzles, " (first (List ref (%get st %band) %bands))) "")
+        (List map (fn (_ c) (Str8 append (first c) "   " (List ref 2 c))) %choices)
+        (list "x   x-chess's own, unrated" "" "< >  another rating · any other key: back to the game")))
+    (%draw-box! screen 58 lines)))
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?

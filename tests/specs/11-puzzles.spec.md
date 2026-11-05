@@ -1,8 +1,9 @@
 # Puzzles and the coach
 @weight 3
 
-chess/puzzle: puzzles made for x-chess and those of the lichess puzzle
-database, chosen by the database's themes, and whether a move solves
+chess/puzzle: puzzles made for x-chess, the library cut from the lichess
+puzzle database that x-chess ships, and those of any file of that
+database, chosen by its themes and ratings, and whether a move solves
 one.  chess/tui sets them on the board, answers right moves with the
 solution's replies, and coaches a game by the engine's own lines.
 tests/puzzles.csv holds lines in the lichess database's form.
@@ -58,7 +59,7 @@ tests/puzzles.csv holds lines in the lichess database's form.
 
 ## judging a move
 
-### the solution's move, another that mates, a wrong move, a move on the way, and another way on
+### the solution's move, another that mates, a wrong move, a move on the way, and one that mates later
 
 ```chess
 (def zs (puzzle-set))
@@ -72,18 +73,50 @@ tests/puzzles.csv holds lines in the lichess database's form.
              (judge "The ladder" "Ra7") (judge "The ladder" "Rb8") (judge "The ladder" "Rb7")))
 ```
 ---
-    ('solved 'solved 'wrong 'right 'wrong 'right)
+    ('solved 'solved 'wrong 'right 'wrong 'wrong)
 
-### another way on is answered with the engine's defence
+## the library
+
+### the puzzles x-chess ships: where, a band's ratings in order, and the first of three themes
 
 ```chess
-(def z (List find (fn (_ z) (Str8 includes? "The ladder" (puzzle-title z))) (puzzle-set)))
-(def p (pos-from-fen (puzzle-fen z)))
-(def v (puzzle-judge z p (move-parse p "Rb7") (puzzle-solution z)))
-(write (list (first v) (List length (rest v)) (Str8 starts? "h8" (first (rest v)))))
+(def lib (puzzle-library))
+(def ratings (fn (self next) ((fn (_ z) (if (null? z) () (pair (puzzle-rating z) (self next)))) (next))))
+(def rising? (fn (self rs) (if (null? (rest rs)) #t (if (< (List ref 1 rs) (first rs)) #f (self (rest rs))))))
+(def top (ratings (puzzle-file-source lib "mateIn5" 2200 0)))
+(def first-of (fn (_ t low high) ((puzzle-file-source lib t low high))))
+(write (list (Str8 ends? "/chess/puzzles.csv" lib)
+             (List length top) (rising? top) (< 2199 (first top))
+             (List map (fn (_ t) ((fn (_ z) (list (puzzle-length z) (puzzle-rating z))) (first-of t 0 0)))
+               (list "mateIn1" "mateIn5" "fork"))
+             (puzzle-rating (first-of "pin" 1800 2199))))
 ```
 ---
-    ('right 2 #t)
+    (#t 40 #t #t ((1 746) (5 1077) (2 847)) 1800)
+
+### every solution of the hardest mates in five is legal in the engine's rules and ends in mate
+
+```chess
+(def lib (puzzle-library))
+(def plays
+  (fn (_ z)
+    (def p (pos-from-fen (puzzle-fen z)))
+    (def go
+      (fn (self ms)
+        (if (null? ms) (if (null? (legal-moves p)) (in-check? p) #f)
+          ((fn (_ m) (if (null? m) #f (do (make! p m) (self (rest ms))))) (move-parse-uci p (first ms))))))
+    (go (puzzle-solution z))))
+(def tally
+  (fn (self next ok bad)
+    (Heap collect)
+    ((fn (_ z) (match ((null? z) (list ok bad))
+                      ((plays z) (self next (+ ok 1) bad))
+                      (#t (self next ok (pair (puzzle-id z) bad)))))
+     (next))))
+(write (tally (puzzle-file-source lib "mateIn5" 2200 0) 0 ()))
+```
+---
+    (40 ())
 
 ## themes
 
@@ -107,9 +140,9 @@ tests/puzzles.csv holds lines in the lichess database's form.
 (def file (Str8 append (Sys getenv "CHESS_TESTS") "/puzzles.csv"))
 (def ids (fn (self next) ((fn (_ z) (if (null? z) () (pair (puzzle-id z) (self next)))) (next))))
 (write (list (puzzle-range "1500-1800") (puzzle-range "1500-") (puzzle-range "-1800") (puzzle-range "fork") (puzzle-range "-")
-             (ids (puzzle-filter (puzzle-file-source file) "mate" 0 0))
-             (ids (puzzle-filter (puzzle-file-source file) "" 0 1000))
-             (ids (puzzle-filter (puzzle-file-source file) "" 1000 0))))
+             (ids (puzzle-file-source file "mate" 0 0))
+             (ids (puzzle-file-source file "" 0 1000))
+             (ids (puzzle-file-source file "" 1000 0))))
 ```
 ---
     ((1500 . 1800) (1500 . 0) (0 . 1800) () () ("00sHx") ("01xyz") ("00sHx"))
@@ -181,16 +214,20 @@ No more puzzles: 0 of 1 solved.
 Hint: Ra8#
 ```
 
-### z with no puzzles set shows the choice, a key picks, n leaves them
+### z with no puzzles set shows the choice, < > a band, a key picks, n leaves them
 
 ```chess
 (def st (tui-make ()))
 (def s (Screen make 30 100))
 (spec-keys! st (list "z"))
 (spec-draw! st s)
-(display (spec-rows s (List range 9 20)))
+(display (spec-rows s (List range 4 25)))
 (newline)
-(spec-keys! st (list "2"))
+(spec-keys! st (list ">" ">"))
+(spec-draw! st s)
+(display (spec-rows s (List range 4 7)))
+(newline)
+(spec-keys! st (list "4"))
 (spec-draw! st s)
 (display (spec-rows s (list 0 28)))
 (newline)
@@ -200,18 +237,31 @@ Hint: Ra8#
 ```
 ---
 ```output
-                            Puzzles
-5
-                            1   Mate in one (8)
-                            2   Mate in two (7)
-4                           3   Mate in three (1)
-                            w   Win material: forks, pins, skewers (5)
-                            a   All of them, the easiest first (21)
-3
-                            Any other key: back to the game.
+7    ♟      ♟      ♟
+                        Puzzles, any rating
 
-   ●  x-chess (Black)                                         Puzzle 1 · 0 of 1 solved
-Mate in 2: The ladder: White to move.
+6                       1   Mate in one
+                        2   Mate in two
+                        3   Mate in three
+5                       4   Mate in four
+                        5   Mate in five
+                        f   Forks
+4                       p   Pins
+                        s   Skewers
+                        d   Discovered attacks
+3                       t   Trapped pieces
+                        h   Pieces left hanging
+                        e   Endgames
+2    ♙      ♙      ♙    a   All of them
+                        x   x-chess's own, unrated
+
+1    ♖      ♘      ♗    < >  another rating · any other key: back to the game
+
+
+7    ♟      ♟      ♟
+                        Puzzles, rated 1000 to 1399
+   ●  x-chess (Black)   +2                                    Puzzle 1 · 0 of 1 solved · rated 1227
+Mate in 4: White to move.
 A new game.
 type or click a move · u back · v turn · i hint · m move now · l analyse · z puzzles · ? keys · q qu
 ```
@@ -220,7 +270,7 @@ type or click a move · u back · v turn · i hint · m move now · l analyse ·
 
 ```chess
 (def st (tui-make ()))
-(spec-keys! st (list "z" "x"))
+(spec-keys! st (list "z" "y"))
 (def s (Screen make 30 100))
 (spec-draw! st s)
 (display (spec-rows s (list 0 28)))
