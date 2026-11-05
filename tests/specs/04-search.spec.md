@@ -2,8 +2,9 @@
 @weight 1
 
 chess/search: the evaluation, and the move alpha-beta chooses.  A report
-is (depth score nodes microseconds move), the score from the side to
-move's view in centipawns.
+is (depth score nodes microseconds move line), the score from the side to
+move's view in centipawns, line the moves the search expects from move
+on.
 
 ## evaluation
 
@@ -65,3 +66,15 @@ move's view in centipawns.
 ```
 ---
     ()
+
+## the line
+
+### the mate and the line to it, and the line from the start
+
+```chess
+(def r (search-best (pos-from-fen "6k1/5ppp/8/8/8/8/5PPP/1R4K1 w - - 0 1") 2 0 0 (fn (_) #f) (fn (_ r) ())))
+(def r2 (search-best (pos-from-fen fen-start) 3 0 0 (fn (_) #f) (fn (_ r) ())))
+(write (list (List map move-uci (List ref 5 r)) (List map move-uci (List ref 5 r2))))
+```
+---
+    (("b1b8") ("g1f3" "g8f6" "b1c3"))

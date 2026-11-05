@@ -33,7 +33,8 @@
   (fn (_ text) (List for-each (fn (_ l) (display l) (display "\n")) (Str8 split "\n" text))))
 
 ; TEXT with what changes from run to run taken out: an info line's time
-; and nps, and the statistics after a move the engine plays or suggests.
+; and nps, and the statistics after a move an engine plays or suggests
+; and after a line of its thinking.
 (def spec-untimed
   (fn (_ text)
     (def drop-timing
@@ -49,7 +50,8 @@
       (List map
         (fn (_ l)
           (match ((Str8 starts? "info depth" l) (Str8 join " " (drop-timing (Str8 split " " l))))
-                 ((Str8 starts? "x-chess plays" l) (cut-stats l))
-                 ((Str8 starts? "x-chess suggests" l) (cut-stats l))
+                 ((Str8 includes? " plays " l) (cut-stats l))
+                 ((Str8 includes? " suggests " l) (cut-stats l))
+                 ((Str8 starts? "  " l) (cut-stats l))
                  (#t l)))
         (Str8 split "\n" text)))))

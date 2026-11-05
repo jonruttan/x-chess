@@ -98,7 +98,7 @@
       " nodes " (io-display-to-str (List ref 2 r))
       " time " (io-display-to-str ms)
       " nps " (io-display-to-str (if (< us 1) 0 (int/ (int* (List ref 2 r) 1000000) us)))
-      " pv " (move-uci (List ref 4 r)) "\n")))
+      " pv " (Str8 join " " (List map move-uci (List ref 5 r))) "\n")))
 
 ; Lines that came while thinking and were not the search's to act on.
 (def %pending ())

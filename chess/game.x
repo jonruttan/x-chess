@@ -111,5 +111,37 @@
         (go (rest sans) (+ number 1) #t (list (first sans) (Str8 append (io-display-to-str number) "..."))))
       (go sans number #t ()))))
 
+
+; Game G as PGN: TAGS, an alist of names and values, in order, then SetUp
+; and FEN when the game did not start from the usual position, a Result
+; tag of RESULT ("1-0", "0-1", "1/2-1/2" or "*"), and the movetext
+; folded at 79 columns, ending in the result.
+(def game-pgn
+  (fn (_ g tags result)
+    (def all
+      (List append tags
+        (list (pair "Result" result))
+        (if (str=? (game-start g) fen-start) () (list (pair "SetUp" "1") (pair "FEN" (game-start g))))))
+    (Str8 append
+      (Str8 join "" (List map (fn (_ t) (Str8 append "[" (first t) " \"" (%pgn-quote (rest t)) "\"]\n")) all))
+      "\n"
+      (%fold-words (List append (List reject (fn (_ w) (str=? w "")) (Str8 split " " (game-movetext g))) (list result)) 79)
+      "\n")))
+
+(def %pgn-quote
+  (fn (_ s) (Str8 replace "\"" "\\\"" (Str8 replace "\\" "\\\\" s))))
+
+; WORDS joined by spaces, a newline before any that would pass WIDTH.
+(def %fold-words
+  (fn (_ words width)
+    (def go
+      (fn (self ws line acc)
+        (match
+          ((null? ws) (Str8 join "\n" (List reverse (if (str=? line "") acc (pair line acc)))))
+          ((str=? line "") (self (rest ws) (first ws) acc))
+          ((< width (+ (Str8 length line) 1 (Str8 length (first ws)))) (self ws "" (pair line acc)))
+          (#t (self (rest ws) (Str8 append line " " (first ws)) acc)))))
+    (go words "" ())))
+
 (provide chess/game game-new game-pos game-start game-fen game-moves game-play! game-undo!
-  game-repeats game-result game-movetext)
+  game-repeats game-result game-movetext game-pgn)

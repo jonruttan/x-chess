@@ -15,8 +15,14 @@
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft)
 (import chess/search MATE evaluate search-best mate-score? mate-in)
 (import chess/san move-san moves-san move-parse)
-(import chess/game game-new game-pos game-start game-fen game-moves game-play! game-undo! game-repeats game-result game-movetext)
+(import chess/game game-new game-pos game-start game-fen game-moves game-play! game-undo! game-repeats game-result game-movetext
+  game-pgn)
+(import chess/player player-builtin player-start player-name player-builtin? player-think
+  player-new-game! player-quit!)
+(import chess/match match-run)
 (import chess/show show-board)
+(import chess/engine engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
+  engine-option! engine-new-game! engine-think engine-info-report)
 (import chess/uci chess-version uci-run uci-think-ms)
 (import chess/play play-run)
 (import chess/cli chess-main chess-options)
@@ -32,4 +38,8 @@
   MATE evaluate search-best mate-score? mate-in
   move-san moves-san move-parse
   game-new game-pos game-start game-fen game-moves game-play! game-undo! game-repeats game-result game-movetext
-  show-board chess-version uci-run uci-think-ms play-run chess-main chess-options)
+  game-pgn player-builtin player-start player-name player-builtin? player-think player-new-game! player-quit!
+  match-run
+  show-board chess-version uci-run uci-think-ms play-run chess-main chess-options
+  engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
+  engine-option! engine-new-game! engine-think engine-info-report)

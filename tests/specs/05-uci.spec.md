@@ -19,7 +19,7 @@ id author Jon Ruttan
 uciok
 readyok
 info depth 1 score cp 50 nodes 34 pv g1f3
-info depth 2 score cp 0 nodes 203 pv g1f3
+info depth 2 score cp 0 nodes 203 pv g1f3 g8f6
 bestmove g1f3
 
 ```
