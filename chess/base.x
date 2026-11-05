@@ -14,6 +14,7 @@
   fen-start pos-from-fen pos-fen pos-key parse-int
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft)
 (import chess/search MATE evaluate search-best best-move mate-score? mate-in)
+(import chess/mate mate-find mate-forced)
 (import chess/book polyglot-key polyglot-hex book-moves book-pick book-current book-use!)
 (import chess/tables tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe)
 (import chess/san move-san moves-san move-parse)
@@ -44,7 +45,7 @@
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci
   fen-start pos-from-fen pos-fen pos-key parse-int
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft
-  MATE evaluate search-best best-move mate-score? mate-in
+  MATE evaluate search-best best-move mate-score? mate-in mate-find mate-forced
   polyglot-key polyglot-hex book-moves book-pick book-current book-use!
   tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe
   move-san moves-san move-parse

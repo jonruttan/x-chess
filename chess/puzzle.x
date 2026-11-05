@@ -8,8 +8,9 @@
 ;
 ; A puzzle is a position with the side to move the solver's, and its
 ; solution in long algebraic: the solver's moves with the replies between
-; them.  The solver's move is right when it is the solution's, and any
-; move that mates solves the puzzle.
+; them.  The solver's move is right when it is the solution's, any move
+; that mates solves the puzzle, and in a mate a move that still forces
+; mate in the moves left is right, chess/mate finding the defence.
 ;
 ; Puzzles come from the set here, made for this bundle, from the library
 ; cut from the lichess database that the bundle ships (chess/puzzles.csv,
@@ -27,6 +28,7 @@
 
 (import chess/board pos-from-fen pos-fen pos-copy make! move-uci move-parse-uci legal-moves in-check? parse-int)
 (import x/core/doors int/ int% str-make str-byte-sub io-display-to-str)
+(import chess/mate mate-forced)
 (import x/sys/file)
 (import x/sys/gc)
 
@@ -262,14 +264,28 @@
 ; What the solver's move M in P is for puzzle Z with LEFT of its solution
 ; still to play, and the line to play on after it: (right . LINE) with
 ; the reply first, (solved . ()), or (wrong . LEFT).  A move that mates
-; solves any puzzle, as lichess has it.
+; solves any puzzle, as lichess has it; in a mate, a move that still
+; forces mate in the moves left is right too, answered by the defence
+; that holds out longest (chess/mate, 5 s at most).
 (def puzzle-judge
   (fn (_ z p m left)
+    (def k (+ 1 (int/ (List length left) 2)))
     (match
       ((str=? (move-uci m) (first left))
         (if (null? (rest left)) (pair (lit solved) ()) (pair (lit right) (rest left))))
       ((%mates? p m) (pair (lit solved) ()))
+      ((if (< 0 (puzzle-mate-in z)) (< 1 k) #f) (%mate-kept p m k left))
       (#t (pair (lit wrong) left)))))
+
+; The verdict on M in P, which does not mate, when K of the solver's
+; moves are left: right with the longest defence when every reply is
+; still mated within K - 1, else wrong.
+(def %mate-kept
+  (fn (_ p m k left)
+    (def q (pos-copy p))
+    (make! q m)
+    ((fn (_ line) (if (if (eq? line (lit escape)) #t (null? line)) (pair (lit wrong) left) (pair (lit right) (List map move-uci line))))
+     (mate-forced q (- k 1) 5000))))
 
 (provide chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library
