@@ -8,7 +8,7 @@
 ;
 ;   x -l chess -- [--white|--black|--both] [--fen FEN] [--time S] [--depth N] [--think] [--engine CMD]
 ;                  [--book FILE|--no-book]
-;   x -l chess -- --puzzle | --puzzles FILE
+;   x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH]
 ;   x -l chess -- --uci
 ;   x -l chess -- --perft N [--fen FEN]
 ;   x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time S] [--depth N]
@@ -32,7 +32,7 @@
 (import chess/player player-builtin player-start player-quit!)
 (import chess/match match-run)
 (import chess/app app-run)
-(import chess/puzzle puzzle-set puzzle-list-source puzzle-file-source)
+(import chess/puzzle puzzle-set puzzle-list-source puzzle-file-source puzzle-filter puzzle-range)
 (import x/sys/date)
 (import chess/book book-use!)
 (import chess/tables tables-dir tables-allow-build! tables-build!)
@@ -41,7 +41,7 @@
   (Str8 join "\n"
     (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]"
           "                         [--book FILE|--no-book]"
-          "       x -l chess -- --puzzle | --puzzles FILE"
+          "       x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH]"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
           "       x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]"
@@ -51,7 +51,8 @@
           "--line plays it a line at a time instead (help lists the commands), --letters draws"
           "the pieces as letters, --coach judges your moves against the engine's."
           "--puzzle sets the puzzles made for x-chess on the board, --puzzles those of FILE,"
-          "a CSV of the lichess puzzle database."
+          "a CSV of the lichess puzzle database; --theme takes those with a theme of the"
+          "database's (mateIn2, mate, fork, crushing, ...), --rating those rated in a range."
           "Fed lines, it speaks UCI when the first is `uci`, else plays them as moves."
           "--engine plays a UCI engine, CMD its program and arguments, in place of x-chess."
           "--match plays games between two engines (x-chess the first unless two are named),"
@@ -108,6 +109,13 @@
       ((str=? a "--puzzles")
         (if (null? value) (list (pair (lit error) "--puzzles takes a file"))
           (self (List drop 2 args) (pair (pair (lit puzzles) value) opts))))
+      ((str=? a "--theme")
+        (if (null? value) (list (pair (lit error) "--theme takes a theme: mateIn2, mate, fork, ..."))
+          (self (List drop 2 args) (pair (pair (lit theme) value) opts))))
+      ((str=? a "--rating")
+        ((fn (_ r) (if (null? r) (list (pair (lit error) "--rating takes a range: LOW-HIGH, LOW- or -HIGH"))
+                     (self (List drop 2 args) (pair (pair (lit rating) r) opts))))
+         (if (null? value) () (puzzle-range value))))
       (#t (list (pair (lit error) (Str8 append "no such option: " a)))))))
 
 (def %opt (fn (_ opts k) ((fn (_ p) (if (null? p) () (rest p))) (Assoc find k opts))))
@@ -189,12 +197,16 @@
       (if (null? (%opt opts (lit letters))) () (list (pair (lit letters) #t)))
       (if (null? (%opt opts (lit coach))) () (list (pair (lit coach) #t))))))
 
-; The puzzles OPTS ask for: a source, or ().  Raises when the file
-; cannot be opened.
+; The puzzles OPTS ask for, those of --theme and --rating: a source, or
+; ().  Raises when the file cannot be opened.
 (def %puzzles
   (fn (_ opts)
-    (match ((not (null? (%opt opts (lit puzzles)))) (puzzle-file-source (%opt opts (lit puzzles))))
-           ((not (null? (%opt opts (lit puzzle)))) (puzzle-list-source (puzzle-set)))
+    (def theme (if (null? (%opt opts (lit theme))) "" (%opt opts (lit theme))))
+    (def range (if (null? (%opt opts (lit rating))) (pair 0 0) (%opt opts (lit rating))))
+    (def chosen
+      (fn (_ source) (puzzle-filter source theme (first range) (rest range))))
+    (match ((not (null? (%opt opts (lit puzzles)))) (chosen (puzzle-file-source (%opt opts (lit puzzles)))))
+           ((not (null? (%opt opts (lit puzzle)))) (chosen (puzzle-list-source (puzzle-set))))
            (#t ()))))
 
 ; The --engine commands in OPTS, in the order given.

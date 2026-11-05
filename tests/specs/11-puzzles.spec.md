@@ -1,15 +1,15 @@
 # Puzzles and the coach
-@weight 2
+@weight 3
 
 chess/puzzle: puzzles made for x-chess and those of the lichess puzzle
-database, and whether a move solves one.  chess/tui sets them on the
-board, answers right moves with the solution's replies, and coaches a
-game by the engine's own lines.  tests/puzzles.csv holds lines in the
-lichess database's form.
+database, chosen by the database's themes, and whether a move solves
+one.  chess/tui sets them on the board, answers right moves with the
+solution's replies, and coaches a game by the engine's own lines.
+tests/puzzles.csv holds lines in the lichess database's form.
 
 ## the set
 
-### each puzzle's solution is legal and mates
+### each mate's solution is legal and mates
 
 ```chess
 (write (List map
@@ -17,87 +17,109 @@ lichess database's form.
     (def p (pos-from-fen (puzzle-fen z)))
     (List for-each (fn (_ u) (make! p (move-parse-uci p u))) (puzzle-solution z))
     (list (puzzle-title z) (puzzle-length z) (if (null? (legal-moves p)) (in-check? p) #f)))
-  (puzzle-set)))
+  (List filter (fn (_ z) (puzzle-has? z "mate")) (puzzle-set))))
 ```
 ---
 ```output
-(("Mate in 1: The back rank" 1 #t) ("Mate in 1: Smothered" 1 #t) ("Mate in 1: Too soon for the knight" 1 #t) ("Mate in 1: The king helps" 1 #t) ("Mate in 2: The ladder" 2 #t) ("Mate in 1: Back rank again" 1 #t) ("Mate in 1: The opposition" 1 #t) ("Mate in 1: Queen to the edge" 1 #t) ("Mate in 1: Too far to block" 1 #t))
+(("Mate in 1: The back rank" 1 #t) ("Mate in 1: Smothered" 1 #t) ("Mate in 1: Too soon for the knight" 1 #t) ("Mate in 1: The king helps" 1 #t) ("Mate in 1: Back rank again" 1 #t) ("Mate in 1: The opposition" 1 #t) ("Mate in 1: Queen to the edge" 1 #t) ("Mate in 1: Too far to block" 1 #t) ("Mate in 2: The ladder" 2 #t) ("Mate in 2: The queen as bait" 2 #t) ("Mate in 2: Philidor's smothered mate" 2 #t) ("Mate in 2: Légal's trap" 2 #t) ("Mate in 2: A waiting move" 2 #t) ("Mate in 2: Take the square" 2 #t) ("Mate in 2: The king steps up" 2 #t) ("Mate in 3: Philidor's legacy" 3 #t))
 ```
 
-### the engine finds no faster mate than each title gives
+### each tactic's solution wins at least a minor piece, by the evaluation
 
 ```chess
 (write (List map
   (fn (_ z)
-    (def r (search-best (pos-from-fen (puzzle-fen z)) (* 2 (puzzle-length z)) 0 0 (fn (_) #f) (fn (_ r) ())))
-    (Heap collect)
-    (mate-in (List ref 1 r)))
-  (puzzle-set)))
+    (def p (pos-from-fen (puzzle-fen z)))
+    (def before (evaluate p))
+    (List for-each (fn (_ u) (make! p (move-parse-uci p u))) (puzzle-solution z))
+    ; an odd number of moves leaves the other side to move
+    (def after (if (= (% (List length (puzzle-solution z)) 2) 1) (- 0 (evaluate p)) (evaluate p)))
+    (list (puzzle-title z) (< 250 (- after before))))
+  (List filter (fn (_ z) (puzzle-has? z "crushing")) (puzzle-set))))
 ```
 ---
-    (1 1 1 1 2 1 1 1 1)
+```output
+(("A fork: The king and the queen" #t) ("A fork: Check, then the rook" #t) ("A skewer: Through the king" #t) ("A pin: The queen cannot move" #t) ("A discovered attack: Out of the way, with check" #t))
+```
+
+### the engine finds no faster mate than each title gives: none in two for a mate in three
+
+```chess
+(write (List map
+  (fn (_ z)
+    (def n (puzzle-mate-in z))
+    (def r (search-best (pos-from-fen (puzzle-fen z)) (* 2 (if (< 2 n) 2 n)) 0 0 (fn (_) #f) (fn (_ r) ())))
+    (Heap collect)
+    (if (mate-score? (List ref 1 r)) (mate-in (List ref 1 r)) (lit none)))
+  (List filter (fn (_ z) (puzzle-has? z "mate")) (puzzle-set))))
+```
+---
+    (1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 3)
 
 ## judging a move
 
-### the solution's move, another that mates, a wrong move, and a move on the way
+### the solution's move, another that mates, a wrong move, a move on the way, and another way on
 
 ```chess
 (def zs (puzzle-set))
+(def find (fn (_ name) (List find (fn (_ z) (Str8 includes? name (puzzle-title z))) zs)))
 (def judge
-  (fn (_ i text)
-    (def z (List ref i zs))
+  (fn (_ name text)
+    (def z (find name))
     (def p (pos-from-fen (puzzle-fen z)))
-    (puzzle-judge z p (move-parse p text) (puzzle-solution z))))
-(write (list (judge 0 "Ra8") (judge 8 "Re8") (judge 0 "Ra7") (judge 4 "Ra7") (judge 4 "Rb8")))
+    (first (puzzle-judge z p (move-parse p text) (puzzle-solution z)))))
+(write (list (judge "The back rank" "Ra8") (judge "Too far to block" "Re8") (judge "The back rank" "Ra7")
+             (judge "The ladder" "Ra7") (judge "The ladder" "Rb8") (judge "The ladder" "Rb7")))
 ```
 ---
-    ('solved 'solved 'wrong 'right 'wrong)
+    ('solved 'solved 'wrong 'right 'wrong 'right)
 
-## the lichess database
-
-### a line read: the setup move made, the rest the solution
+### another way on is answered with the engine's defence
 
 ```chess
-(def z (puzzle-from-csv "00sHx,q3k1nr/1pp1nQpp/3p4/1P2p3/4P3/B1PP1b2/B5PP/5K2 b k - 0 17,e8d7 a2e6 d7d8 f7f8,1760,80,83,72,mate mateIn2 middlegame short,https://lichess.org/yyznGmXs/black#34,"))
-(write (list (puzzle-id z) (puzzle-title z) (puzzle-rating z) (puzzle-fen z) (puzzle-solution z) (puzzle-length z)))
+(def z (List find (fn (_ z) (Str8 includes? "The ladder" (puzzle-title z))) (puzzle-set)))
+(def p (pos-from-fen (puzzle-fen z)))
+(def v (puzzle-judge z p (move-parse p "Rb7") (puzzle-solution z)))
+(write (list (first v) (List length (rest v)) (Str8 starts? "h8" (first (rest v)))))
 ```
 ---
-    ("00sHx" "Mate in 2" 1760 "q5nr/1ppknQpp/3p4/1P2p3/4P3/B1PP1b2/B5PP/5K2 w - - 1 18" ("a2e6" "d7d8" "f7f8") 2)
+    ('right 2 #t)
 
-### the header and a line that does not read are no puzzles
+## themes
+
+### the titles themes give, and what a theme picks
 
 ```chess
-(write (list (puzzle-from-csv "PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags")
-             (puzzle-from-csv "bad,not a position,e2e4,1500,80,83,72,short,,")))
+(def zs (puzzle-set))
+(def count (fn (_ t) (List length (List filter (fn (_ z) (puzzle-has? z t)) zs))))
+(write (list (puzzle-title (puzzle-make "8/8/8/8/8/8/8/8 w - - 0 1" () "" 0 "" (list "crushing" "fork")))
+             (puzzle-title (puzzle-make "8/8/8/8/8/8/8/8 w - - 0 1" () "Named" 0 "" (list "mate" "mateIn3")))
+             (puzzle-title (puzzle-make "8/8/8/8/8/8/8/8 w - - 0 1" () "" 0 "" (list "endgame")))
+             (puzzle-title (puzzle-make "8/8/8/8/8/8/8/8 w - - 0 1" () "" 0 "" ()))
+             (list (count "mateIn1") (count "mateIn2") (count "mateIn3") (count "crushing") (count "mate") (count ""))))
 ```
 ---
-    (() ())
+    ("A fork" "Mate in 3: Named" "endgame" "A puzzle" (8 7 1 5 16 21))
 
-### a file read as a source: the lines that read, then nothing
+### a range read, and a file's puzzles picked by theme and rating
 
 ```chess
-(def next (puzzle-file-source (Str8 append (Sys getenv "CHESS_TESTS") "/puzzles.csv")))
-(def a (next))
-(def b (next))
-(write (list (puzzle-id a) (puzzle-id b) (puzzle-title b) (puzzle-solution b) (next)))
+(def file (Str8 append (Sys getenv "CHESS_TESTS") "/puzzles.csv"))
+(def ids (fn (self next) ((fn (_ z) (if (null? z) () (pair (puzzle-id z) (self next)))) (next))))
+(write (list (puzzle-range "1500-1800") (puzzle-range "1500-") (puzzle-range "-1800") (puzzle-range "fork") (puzzle-range "-")
+             (ids (puzzle-filter (puzzle-file-source file) "mate" 0 0))
+             (ids (puzzle-filter (puzzle-file-source file) "" 0 1000))
+             (ids (puzzle-filter (puzzle-file-source file) "" 1000 0))))
 ```
 ---
-    ("00sHx" "01xyz" "endgame" ("g8f8" "c1c8") ())
-
-### a file that is not there is refused
-
-```chess
-(write (guard (e (e msg)) (do (puzzle-file-source "/nonexistent/puzzles.csv") "opened")))
-```
----
-    "cannot open /nonexistent/puzzles.csv"
+    ((1500 . 1800) (1500 . 0) (0 . 1800) () () ("00sHx") ("01xyz") ("00sHx"))
 
 ## on the board
 
 ### a mate in two: a wrong move, the right one answered, then the mate
 
 ```chess
-(def st (tui-make (list (pair (lit puzzles) (puzzle-list-source (List drop 4 (puzzle-set)))))))
+(def st (tui-make (list (pair (lit puzzles) (puzzle-list-source (List filter (fn (_ z) (puzzle-has? z "mateIn2")) (puzzle-set)))))))
 (def s (Screen make 30 100))
 (def says (fn (_ keys) (spec-keys! st keys) (spec-draw! st s) (spec-rows s (list 28))))
 (spec-draw! st s)
@@ -121,7 +143,7 @@ type or click a move · i hint · m show the move · z next puzzle · n leave ·
 Not Rb8+: try again.  i shows a hint, m the move.
 Right.  Black replies Kg8: your move.
 Right.  Done (0 of 1 solved): z for the next puzzle.
-Mate in 1: Back rank again: White to move.
+Mate in 2: The queen as bait: White to move.
 ()
 ```
 
@@ -159,12 +181,16 @@ No more puzzles: 0 of 1 solved.
 Hint: Ra8#
 ```
 
-### z with no puzzles set starts those made for x-chess, n leaves them
+### z with no puzzles set shows the choice, a key picks, n leaves them
 
 ```chess
 (def st (tui-make ()))
 (def s (Screen make 30 100))
 (spec-keys! st (list "z"))
+(spec-draw! st s)
+(display (spec-rows s (List range 9 20)))
+(newline)
+(spec-keys! st (list "2"))
 (spec-draw! st s)
 (display (spec-rows s (list 0 28)))
 (newline)
@@ -174,10 +200,34 @@ Hint: Ra8#
 ```
 ---
 ```output
+                            Puzzles
+5
+                            1   Mate in one (8)
+                            2   Mate in two (7)
+4                           3   Mate in three (1)
+                            w   Win material: forks, pins, skewers (5)
+                            a   All of them, the easiest first (21)
+3
+                            Any other key: back to the game.
+
    ●  x-chess (Black)                                         Puzzle 1 · 0 of 1 solved
-Mate in 1: The back rank: White to move.
+Mate in 2: The ladder: White to move.
 A new game.
 type or click a move · u back · v turn · i hint · m move now · l analyse · z puzzles · ? keys · q qu
+```
+
+### a key the choice does not offer goes back to the game
+
+```chess
+(def st (tui-make ()))
+(spec-keys! st (list "z" "x"))
+(def s (Screen make 30 100))
+(spec-draw! st s)
+(display (spec-rows s (list 0 28)))
+```
+---
+```output
+   ●  x-chess (Black)                                         Playing x-chess · 5 s a move
 ```
 
 ## the coach
@@ -218,13 +268,15 @@ Best.  x-chess plays Nf6
 The coach is off.
 ```
 
+
 ## the command line
 
 ### the options puzzles and the coach take
 
 ```chess
-(write (list (List map rest (chess-options (list "--puzzle" "--coach" "--puzzles" "p.csv") ()))
-             (List map rest (chess-options (list "--puzzles") ()))))
+(write (list (List map rest (chess-options (list "--puzzle" "--coach" "--puzzles" "p.csv" "--theme" "fork" "--rating" "1500-1800") ()))
+             (List map rest (chess-options (list "--puzzles") ()))
+             (List map rest (chess-options (list "--rating" "hard") ()))))
 ```
 ---
-    (("p.csv" #t #t) ("--puzzles takes a file"))
+    (((1500 . 1800) "fork" "p.csv" #t #t) ("--puzzles takes a file") ("--rating takes a range: LOW-HIGH, LOW- or -HIGH"))

@@ -34,7 +34,7 @@
 (import chess/san move-san moves-san move-parse)
 (import chess/player player-builtin player-start player-name player-quit!)
 (import chess/puzzle puzzle-fen puzzle-title puzzle-rating puzzle-solution puzzle-judge puzzle-set
-  puzzle-list-source puzzle-file-source)
+  puzzle-list-source puzzle-file-source puzzle-has? puzzle-filter puzzle-range)
 
 (def %game 0)
 (def %view 1)       ; the side at the bottom: 0 white, 8 black
@@ -59,12 +59,13 @@
 (def %hint 20)      ; a move shown as a hint, or 0
 (def %command 21)   ; a : command being typed, or ()
 (def %promo 22)     ; the squares of a promotion waiting for its piece, or ()
-(def %start-cache 23) ; (game . its start position), parsed once a game
-(def %san-cache 24)   ; (game moves sans): the SAN of the moves last drawn
-(def %puzzle 25)      ; puzzles being solved: see %puzzle-make, or ()
+(def %start-cache 23) ; (start FEN . its position), parsed once a game
+(def %san-cache 24)   ; (start FEN, moves, sans): the SAN of the moves last drawn
+(def %puzzle 25)      ; puzzles being solved: see tui-puzzles!, or ()
 (def %coach 26)       ; whether your moves are judged
 (def %expect 27)      ; the reply the engine expects of you: (score move . san), or ()
-(def %slots 28)
+(def %choose 28)      ; whether the choice of puzzles is shown
+(def %slots 29)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -97,6 +98,7 @@
     (%put! st %cursor-on #f)
     (%put! st %hint 0)
     (%put! st %coach (opt (lit coach) #f))
+    (%put! st %choose #f)
     (unless (null? (opt (lit puzzles) ())) (tui-puzzles! st (opt (lit puzzles) ())))
     st))
 
@@ -353,25 +355,53 @@
           (tui-thinking-clear! st)
           (%put! st %msg (Str8 append (puzzle-title z) ": " (%side-name side) " to move."))))))
 
-; z: the next puzzle, or the set made for this bundle when none is being solved.
+; z: the next puzzle, or the choice of puzzles when none is being solved.
 (def %puzzle-key!
   (fn (_ st)
-    (if (null? (%get st %puzzle)) (tui-puzzles! st (puzzle-list-source (puzzle-set))) (%next-puzzle! st))))
+    (if (null? (%get st %puzzle)) (%put! st %choose #t) (%next-puzzle! st))))
+
+; The choice z offers: the key, the theme (as puzzle-has? takes it), and
+; what is said of it.
+(def %choices
+  (list (list "1" "mateIn1" "Mate in one")
+        (list "2" "mateIn2" "Mate in two")
+        (list "3" "mateIn3" "Mate in three")
+        (list "w" "crushing" "Win material: forks, pins, skewers")
+        (list "a" "" "All of them, the easiest first")))
+
+; The built-in puzzles THEME picks, in the set's order.
+(def %chosen (fn (_ theme) (List filter (fn (_ z) (puzzle-has? z theme)) (puzzle-set))))
+
+; KEY pressed with the choice shown.
+(def %choose-key!
+  (fn (_ st key)
+    (def c (if (str? key) (List find (fn (_ c) (str=? (first c) key)) %choices) ()))
+    (%put! st %choose #f)
+    (unless (null? c) (tui-puzzles! st (puzzle-list-source (%chosen (List ref 1 c)))))))
+
+; The puzzles of :puzzles FILE [THEME] [LOW-HIGH], as WORDS: a source.
+(def %file-puzzles
+  (fn (_ words)
+    (def more (rest words))
+    (def range-word (List find (fn (_ w) (not (null? (puzzle-range w)))) more))
+    (def theme (List find (fn (_ w) (null? (puzzle-range w))) more))
+    (def range (if (null? range-word) (pair 0 0) (puzzle-range range-word)))
+    (puzzle-filter (puzzle-file-source (first words)) (if (null? theme) "" theme) (first range) (rest range))))
 
 ; Your move M in the puzzle, LEAD said before what follows when it is right.
 (def %puzzle-move!
   (fn (_ st m lead)
     (def left (%pz st 2))
     (def p (game-pos (%get st %game)))
-    (def verdict (if (null? left) (lit free) (puzzle-judge (%pz st 1) p m left)))
+    (def verdict (if (null? left) (pair (lit free) ()) (puzzle-judge (%pz st 1) p m left)))
     (match
-      ((eq? verdict (lit free)) (%play-move! st m))
-      ((eq? verdict (lit wrong))
+      ((eq? (first verdict) (lit free)) (%play-move! st m))
+      ((eq? (first verdict) (lit wrong))
         (do (%pz! st 5 #t)
             (%put! st %sel -1) (%put! st %input "")
             (%put! st %msg (Str8 append "Not " (move-san p m) ": try again.  i shows a hint, m the move."))))
-      ((eq? verdict (lit solved)) (%solved! st m lead))
-      (#t (%right! st m lead)))))
+      ((eq? (first verdict) (lit solved)) (%solved! st m lead))
+      (#t (%right! st m lead (rest verdict))))))
 
 (def %solved!
   (fn (_ st m lead)
@@ -384,12 +414,13 @@
     (unless (%pz st 5) (%pz! st 3 (+ 1 (%pz st 3))))
     (%put! st %msg (Str8 append lead (if (%pz st 5) "Done" "Solved") " (" (%count-text st) "): z for the next puzzle."))))
 
+; M was right: it is made, and the first of LEFT, the line on from it,
+; is the reply.
 (def %right!
-  (fn (_ st m lead)
+  (fn (_ st m lead left)
     (%play-move! st m)
     (def g (%get st %game))
-    (def left (rest (%pz st 2)))
-    (def reply (move-parse-uci (game-pos g) (first left)))
+    (def reply (if (null? left) () (move-parse-uci (game-pos g) (first left))))
     (if (null? reply) (%finished! st lead)
       (do (def san (move-san (game-pos g) reply))
           (game-play! g reply)
@@ -479,6 +510,7 @@
   (fn (_ st key)
     (match
       ((not (null? (%get st %command))) (%command-key! st key))
+      ((%get st %choose) (%choose-key! st key))
       ((%get st %help) (%put! st %help #f))
       ((not (null? (%get st %promo)))
         (if (str? key) (%promote! st key) (do (%put! st %promo ()) (%put! st %sel -1) (%put! st %msg ""))))
@@ -587,8 +619,11 @@
                 (%put! st %msg (Str8 append "The engine is " (player-name pl) "."))))))
       ((str=? cmd "coach") (%coach! st))
       ((str=? cmd "puzzle")
-        (if (str=? arg "") (tui-puzzles! st (puzzle-list-source (puzzle-set)))
-          (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg)))) (tui-puzzles! st (puzzle-file-source arg)))))
+        (if (str=? arg "") (%put! st %choose #t) (tui-puzzles! st (puzzle-list-source (%chosen arg)))))
+      ((str=? cmd "puzzles")
+        (if (str=? arg "") (%put! st %msg "puzzles takes a file, then a theme and a rating range if you like")
+          (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg))))
+            (tui-puzzles! st (%file-puzzles (rest words))))))
       ((str=? cmd "save")
         (if (str=? arg "") (%put! st %msg "save takes a file name")
           (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg))))
@@ -785,13 +820,17 @@
     (def e (Screen put screen row x text (Style make (list (lit bold) (lit underline)) () ())))
     (Screen put screen row (+ e 2) more (Style make (list (lit dim)) () ()))))
 
+; Whether cache C was made for a game from the start FEN of game G.  The
+; FEN is the key: eq? does not tell one game's Vector from another's.
+(def %cached-for? (fn (_ c g) (if (null? c) #f (str=? (first c) (game-start g)))))
+
 ; A copy of the game's start position: FEN is parsed once a game.
 (def %start-pos
   (fn (_ st)
     (def g (%get st %game))
     (def c (%get st %start-cache))
-    (if (if (null? c) #f (eq? (first c) g)) (pos-copy (rest c))
-      ((fn (_ p) (%put! st %start-cache (pair g (pos-copy p))) p) (pos-from-fen (game-start g))))))
+    (if (%cached-for? c g) (pos-copy (rest c))
+      ((fn (_ p) (%put! st %start-cache (pair (game-start g) (pos-copy p))) p) (pos-from-fen (game-start g))))))
 
 ; How many leading moves A and B share.
 (def %shared
@@ -809,14 +848,13 @@
     (def g (%get st %game))
     (def ms (game-moves g))
     (def c (%get st %san-cache))
-    (def n (if (if (null? c) #f (eq? (first c) g)) (%shared (List ref 1 c) ms 0) 0))
-    (if (if (null? c) #f
-          (if (eq? (first c) g) (if (= n (List length ms)) (= n (List length (List ref 1 c))) #f) #f))
+    (def n (if (%cached-for? c g) (%shared (List ref 1 c) ms 0) 0))
+    (if (if (%cached-for? c g) (if (= n (List length ms)) (= n (List length (List ref 1 c))) #f) #f)
       (List ref 2 c)
       (do (def p (%start-pos st))
           (List for-each (fn (_ m) (make! p m)) (List take n ms))
           (def sans (List append (if (= n 0) () (List take n (List ref 2 c))) (moves-san p (List drop n ms))))
-          (%put! st %san-cache (list g ms sans))
+          (%put! st %san-cache (list (game-start g) ms sans))
           sans))))
 
 ; The moves as rows (number white black), each move a pair of its SAN
@@ -893,20 +931,23 @@
         ""
         ":fen FEN   :time S   :depth N   :engine CMD"
         ":save FILE   :white   :black   :both   :new"
-        ":puzzle [FILE]  lichess puzzles from FILE   :coach"
+        ":puzzle [THEME]   :puzzles FILE [THEME] [LOW-HIGH]"
+        ":coach"
         ""
         "Any key closes this."))
 
-(def %draw-help!
-  (fn (_ screen)
-    (def w 62)
-    (def h (+ 2 (List length %help-lines)))
+(def %draw-help! (fn (_ screen) (%draw-box! screen 62 %help-lines)))
+
+; LINES in a box W wide in the middle of the screen.
+(def %draw-box!
+  (fn (_ screen w lines)
+    (def h (+ 2 (List length lines)))
     (def y (%max 0 (int/ (- (Screen rows screen) h) 2)))
     (def x (%max 0 (int/ (- (Screen cols screen) w) 2)))
     (def st (Style make () 16 230))
     (List for-each (fn (_ k) (Screen fill screen (+ y k) x w st)) (List range 0 h))
-    (List for-each (fn (_ i) (Screen put screen (+ y 1 i) (+ x 3) (List ref i %help-lines) st))
-      (List range 0 (List length %help-lines)))))
+    (List for-each (fn (_ i) (Screen put screen (+ y 1 i) (+ x 3) (List ref i lines) st))
+      (List range 0 (List length lines)))))
 
 (def %keys-line
   "type or click a move · u back · v turn · i hint · m move now · l analyse · z puzzles · ? keys · q quit")
@@ -942,7 +983,20 @@
                  ((null? (%get st %puzzle)) %keys-line)
                  (#t %puzzle-keys-line))
           (Style make (if (if (null? (%get st %command)) (str=? (%get st %input) "") #f) (list (lit dim)) ()) () ()))
-        (when (%get st %help) (%draw-help! screen))))))
+        (when (%get st %help) (%draw-help! screen))
+        (when (%get st %choose) (%draw-choice! screen))))))
+
+; The choice of puzzles z shows, each with how many there are.
+(def %draw-choice!
+  (fn (_ screen)
+    (def lines
+      (List append (list "Puzzles" "")
+        (List map (fn (_ c)
+                    (Str8 append (first c) "   " (List ref 2 c) " ("
+                      (io-display-to-str (List length (%chosen (List ref 1 c)))) ")"))
+          %choices)
+        (list "" "Any other key: back to the game.")))
+    (%draw-box! screen 50 lines)))
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?
