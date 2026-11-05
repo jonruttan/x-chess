@@ -130,7 +130,7 @@
     (match
       ((tui-quit? st) ())
       ((null? r) (tui-message! st "The engine has no move."))
-      (#t (tui-engine-played! st (List ref 4 r))))))
+      (#t (tui-engine-played! st (List ref 4 r) r)))))
 
 (def %hint!
   (fn (_ st screen reader)
@@ -154,8 +154,9 @@
   (fn (_ st screen reader key)
     (match
       ((null? key) (tui-key! st "q"))
-      ((if (str? key) (str=? key "i") #f) (%hint! st screen reader))
-      ((if (str? key) (str=? key "m") #f) (%engine-move! st screen reader))
+      ((not (tui-loop-key? st key)) (tui-key! st key))
+      ((str=? key "i") (%hint! st screen reader))
+      ((str=? key "m") (%engine-move! st screen reader))
       (#t (tui-key! st key)))))
 
 (def %loop

@@ -85,7 +85,7 @@ export SPEC_SEAM_COLLECT=0
 # x-cc, x-infocom, x-r5rs and x-r7rs set the same knob.
 export SPEC_BATCH="${SPEC_BATCH:-1}"
 
-# A spec file's time limit.  12-tables builds the three endgame tables,
+# A spec file's time limit.  13-tables builds the three endgame tables,
 # about 190 s of processor time on an M-series Mac and more on a hosted
 # Linux runner.  x-python sets the same knob.
 export TIMEOUT_UNIT_SECS="${TIMEOUT_UNIT_SECS:-900}"

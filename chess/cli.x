@@ -8,6 +8,7 @@
 ;
 ;   x -l chess -- [--white|--black|--both] [--fen FEN] [--time S] [--depth N] [--think] [--engine CMD]
 ;                  [--book FILE|--no-book]
+;   x -l chess -- --puzzle | --puzzles FILE
 ;   x -l chess -- --uci
 ;   x -l chess -- --perft N [--fen FEN]
 ;   x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time S] [--depth N]
@@ -31,14 +32,16 @@
 (import chess/player player-builtin player-start player-quit!)
 (import chess/match match-run)
 (import chess/app app-run)
+(import chess/puzzle puzzle-set puzzle-list-source puzzle-file-source)
 (import x/sys/date)
 (import chess/book book-use!)
 (import chess/tables tables-dir tables-allow-build! tables-build!)
 
 (def %usage
   (Str8 join "\n"
-    (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters]"
+    (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]"
           "                         [--book FILE|--no-book]"
+          "       x -l chess -- --puzzle | --puzzles FILE"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
           "       x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]"
@@ -46,7 +49,9 @@
           ""
           "A game against the engine on a terminal, the board filling it (? lists the keys);"
           "--line plays it a line at a time instead (help lists the commands), --letters draws"
-          "the pieces as letters."
+          "the pieces as letters, --coach judges your moves against the engine's."
+          "--puzzle sets the puzzles made for x-chess on the board, --puzzles those of FILE,"
+          "a CSV of the lichess puzzle database."
           "Fed lines, it speaks UCI when the first is `uci`, else plays them as moves."
           "--engine plays a UCI engine, CMD its program and arguments, in place of x-chess."
           "--match plays games between two engines (x-chess the first unless two are named),"
@@ -65,6 +70,8 @@
         (pair "--think" (pair (lit think) #t))
         (pair "--line" (pair (lit line) #t))
         (pair "--letters" (pair (lit letters) #t))
+        (pair "--coach" (pair (lit coach) #t))
+        (pair "--puzzle" (pair (lit puzzle) #t))
         (pair "--help" (pair (lit help) #t))
         (pair "-h" (pair (lit help) #t))
         (pair "--version" (pair (lit version) #t))
@@ -98,6 +105,9 @@
       ((str=? a "--engine")
         (if (null? value) (list (pair (lit error) "--engine takes a command"))
           (self (List drop 2 args) (pair (pair (lit engine) value) opts))))
+      ((str=? a "--puzzles")
+        (if (null? value) (list (pair (lit error) "--puzzles takes a file"))
+          (self (List drop 2 args) (pair (pair (lit puzzles) value) opts))))
       (#t (list (pair (lit error) (Str8 append "no such option: " a)))))))
 
 (def %opt (fn (_ opts k) ((fn (_ p) (if (null? p) () (rest p))) (Assoc find k opts))))
@@ -176,7 +186,16 @@
       (if (null? secs) () (list (pair (lit ms) (* secs 1000))))
       (if (null? (%opt opts (lit depth))) () (list (pair (lit depth) (%opt opts (lit depth)))))
       (if (null? (%opt opts (lit think))) () (list (pair (lit think) #t)))
-      (if (null? (%opt opts (lit letters))) () (list (pair (lit letters) #t))))))
+      (if (null? (%opt opts (lit letters))) () (list (pair (lit letters) #t)))
+      (if (null? (%opt opts (lit coach))) () (list (pair (lit coach) #t))))))
+
+; The puzzles OPTS ask for: a source, or ().  Raises when the file
+; cannot be opened.
+(def %puzzles
+  (fn (_ opts)
+    (match ((not (null? (%opt opts (lit puzzles)))) (puzzle-file-source (%opt opts (lit puzzles))))
+           ((not (null? (%opt opts (lit puzzle)))) (puzzle-list-source (puzzle-set)))
+           (#t ()))))
 
 ; The --engine commands in OPTS, in the order given.
 (def %engines
@@ -191,9 +210,11 @@
   (fn (_ io opts first-line board)
     (def engines (%engines opts))
     (guard (e (do (%say 2 (Str8 append "x-chess: " (e msg) "\n")) 2))
-      (do (def pl (player-start (if (null? engines) () (first engines))))
+      (do (def puzzles (%puzzles opts))
+          (when (if (null? puzzles) #f (not board)) (Err raise (lit usage) "puzzles are solved on the board, on a terminal" ()))
+          (def pl (player-start (if (null? engines) () (first engines))))
           ; the board has no line to say the endgame tables are building on
-          (if board (do (tables-allow-build! #f) (app-run (pair (pair (lit engine) pl) (%game-opts opts))))
+          (if board (do (tables-allow-build! #f) (app-run (List append (list (pair (lit engine) pl) (pair (lit puzzles) puzzles)) (%game-opts opts))))
             (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line))))))
 
 (def %session

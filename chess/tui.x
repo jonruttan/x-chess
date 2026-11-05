@@ -27,12 +27,14 @@
 (import x/sys/file)
 (import x/core/doors io-display-to-str int/ int% int* int+ int-)
 (import chess/board PAWN KNIGHT BISHOP ROOK QUEEN KING pos-piece pos-side pos-full pos-copy piece-kind piece-colour
-  sq-file sq-rank sq-make sq-name move-from move-to move-promo move-uci make! in-check? legal-moves
+  sq-file sq-rank sq-make sq-name move-from move-to move-promo move-uci move-parse-uci make! in-check? legal-moves
   pos-from-fen pos-fen fen-start parse-int)
 (import chess/search mate-score? mate-in)
 (import chess/game game-new game-pos game-start game-moves game-play! game-undo! game-result game-pgn)
 (import chess/san move-san moves-san move-parse)
 (import chess/player player-builtin player-start player-name player-quit!)
+(import chess/puzzle puzzle-fen puzzle-title puzzle-rating puzzle-solution puzzle-judge puzzle-set
+  puzzle-list-source puzzle-file-source)
 
 (def %game 0)
 (def %view 1)       ; the side at the bottom: 0 white, 8 black
@@ -59,7 +61,10 @@
 (def %promo 22)     ; the squares of a promotion waiting for its piece, or ()
 (def %start-cache 23) ; (game . its start position), parsed once a game
 (def %san-cache 24)   ; (game moves sans): the SAN of the moves last drawn
-(def %slots 25)
+(def %puzzle 25)      ; puzzles being solved: see %puzzle-make, or ()
+(def %coach 26)       ; whether your moves are judged
+(def %expect 27)      ; the reply the engine expects of you: (score move . san), or ()
+(def %slots 28)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -91,6 +96,8 @@
     (%put! st %help #f)
     (%put! st %cursor-on #f)
     (%put! st %hint 0)
+    (%put! st %coach (opt (lit coach) #f))
+    (unless (null? (opt (lit puzzles) ())) (tui-puzzles! st (opt (lit puzzles) ())))
     st))
 
 (def tui-game (fn (_ st) (%get st %game)))
@@ -109,6 +116,7 @@
   (fn (_ st)
     (def side (pos-side (game-pos (%get st %game))))
     (match
+      ((not (null? (%get st %puzzle))) #f)
       ((%get st %analyse) #f)
       ((not (null? (game-result (%get st %game)))) #f)
       ((< -1 (%get st %review)) #f)
@@ -147,15 +155,56 @@
 (def tui-thinking-clear!
   (fn (_ st) (%put! st %thinking ()) (%put! st %stats "")))
 
-; The engine's move M, as the report R gave it, made.
+; The engine's move M made; R, when given, is the report it came from,
+; which the coach judges your last move by.
 (def tui-engine-played!
-  (fn (_ st m)
+  (fn (_ st m . more)
+    (def r (if (null? more) () (first more)))
     (def g (%get st %game))
+    (def said (%coach-says st r))
     (def san (move-san (game-pos g) m))
     (game-play! g m)
     (%put! st %hint 0)
-    (%put! st %msg (Str8 append (player-name (%get st %engine)) " plays " san))
+    (%put! st %msg (Str8 append said (player-name (%get st %engine)) " plays " san))
+    (%put! st %expect (%expectation st r))
     (%after-move! st)))
+
+; --- the coach ----------------------------------------------------------------------
+;
+; When the engine moves, the second move of its line is the reply it
+; expects of you, and its score the one it expects to see next.  Its
+; next score, less that, is what your move cost: from 70 an inaccuracy,
+; from 150 a mistake, from 300 a blunder.
+
+(def %expectation
+  (fn (_ st r)
+    (def line (if (null? r) () (List ref 5 r)))
+    (if (if (null? line) #t (null? (rest line))) ()
+      ((fn (_ m) (list (List ref 1 r) (move-uci m) (move-san (game-pos (%get st %game)) m))) (first (rest line))))))
+
+; What the coach says of your last move, given the engine's report R.
+(def %coach-says
+  (fn (_ st r)
+    (def e (%get st %expect))
+    (def ms (game-moves (%get st %game)))
+    (if (if (%get st %coach) (if (null? r) #f (if (null? e) #f (not (null? ms)))) #f)
+      (%verdict (- (List ref 1 r) (first e)) (str=? (move-uci (List last ms)) (List ref 1 e)) (List ref 2 e))
+      "")))
+
+(def %verdict
+  (fn (_ loss best better)
+    (def worse (fn (_ what) (Str8 append what ": " better " was better.  ")))
+    (match (best "Best.  ")
+           ((< 299 loss) (worse "A blunder"))
+           ((< 149 loss) (worse "A mistake"))
+           ((< 69 loss) (worse "An inaccuracy"))
+           (#t "Good.  "))))
+
+(def %coach!
+  (fn (_ st)
+    (%put! st %coach (not (%get st %coach)))
+    (%put! st %expect ())
+    (%put! st %msg (if (%get st %coach) "The coach judges your moves against the engine's." "The coach is off."))))
 
 (def tui-hint!
   (fn (_ st m)
@@ -186,7 +235,7 @@
            ((eq? (%get st %human) (lit white)) (= side 0))
            (#t (= side 8)))))
 
-(def %play!
+(def %play-move!
   (fn (_ st m)
     (game-play! (%get st %game) m)
     (%put! st %sel -1)
@@ -196,6 +245,11 @@
     (%put! st %msg "")
     (when (%get st %analyse) (tui-thinking-clear! st))
     (%after-move! st)))
+
+; Move M made: judged first when a puzzle is being solved.
+(def %play!
+  (fn (_ st m)
+    (if (if (null? (%get st %puzzle)) #t (%get st %analyse)) (%play-move! st m) (%puzzle-move! st m "Right.  "))))
 
 ; Whether a move can be made now, and if not, why: a message, or ().
 (def %cannot-move
@@ -254,6 +308,112 @@
       ((null? m) (do (%put! st %promo ()) (%put! st %sel -1) (%put! st %msg "No promotion made.")))
       (#t (%play! st m)))))
 
+; --- puzzles -----------------------------------------------------------------------
+;
+; Puzzle mode holds a Vector: 0 the source the puzzles come from, 1 the
+; puzzle, 2 its solution still to play, 3 how many were solved, 4 how
+; many tried, 5 whether this one was missed (a wrong move, a hint, the
+; answer shown).  You play the side to move; your right moves are
+; answered with the solution's replies.
+
+(def %pz (fn (_ st i) (Vector ref i (%get st %puzzle))))
+(def %pz! (fn (_ st i v) (Vector set! i v (%get st %puzzle))))
+
+; Solve the puzzles SOURCE gives, one after another.
+(def tui-puzzles!
+  (fn (_ st source)
+    (def pz (Vector make 6 ()))
+    (Vector set! 0 source pz)
+    (Vector set! 3 0 pz)
+    (Vector set! 4 0 pz)
+    (%put! st %puzzle pz)
+    (%put! st %analyse #f)
+    (%next-puzzle! st)))
+
+(def %count-text
+  (fn (_ st) (Str8 append (io-display-to-str (%pz st 3)) " of " (io-display-to-str (%pz st 4)) " solved")))
+
+(def %next-puzzle!
+  (fn (_ st)
+    (def z ((%pz st 0)))
+    (if (null? z)
+      (do (%put! st %msg (Str8 append "No more puzzles: " (%count-text st) "."))
+          (%put! st %puzzle ())
+          (%put! st %human (lit both)))
+      (do (%put! st %game (game-new (puzzle-fen z)))
+          (def side (pos-side (game-pos (%get st %game))))
+          (%pz! st 1 z)
+          (%pz! st 2 (puzzle-solution z))
+          (%pz! st 4 (+ 1 (%pz st 4)))
+          (%pz! st 5 #f)
+          (%put! st %human (if (= side 0) (lit white) (lit black)))
+          (%put! st %view side)
+          (%put! st %sel -1) (%put! st %review -1) (%put! st %hint 0) (%put! st %promo ())
+          (%put! st %eval ()) (%put! st %expect ())
+          (tui-thinking-clear! st)
+          (%put! st %msg (Str8 append (puzzle-title z) ": " (%side-name side) " to move."))))))
+
+; z: the next puzzle, or the set made for this bundle when none is being solved.
+(def %puzzle-key!
+  (fn (_ st)
+    (if (null? (%get st %puzzle)) (tui-puzzles! st (puzzle-list-source (puzzle-set))) (%next-puzzle! st))))
+
+; Your move M in the puzzle, LEAD said before what follows when it is right.
+(def %puzzle-move!
+  (fn (_ st m lead)
+    (def left (%pz st 2))
+    (def p (game-pos (%get st %game)))
+    (def verdict (if (null? left) (lit free) (puzzle-judge (%pz st 1) p m left)))
+    (match
+      ((eq? verdict (lit free)) (%play-move! st m))
+      ((eq? verdict (lit wrong))
+        (do (%pz! st 5 #t)
+            (%put! st %sel -1) (%put! st %input "")
+            (%put! st %msg (Str8 append "Not " (move-san p m) ": try again.  i shows a hint, m the move."))))
+      ((eq? verdict (lit solved)) (%solved! st m lead))
+      (#t (%right! st m lead)))))
+
+(def %solved!
+  (fn (_ st m lead)
+    (%play-move! st m)
+    (%finished! st lead)))
+
+(def %finished!
+  (fn (_ st lead)
+    (%pz! st 2 ())
+    (unless (%pz st 5) (%pz! st 3 (+ 1 (%pz st 3))))
+    (%put! st %msg (Str8 append lead (if (%pz st 5) "Done" "Solved") " (" (%count-text st) "): z for the next puzzle."))))
+
+(def %right!
+  (fn (_ st m lead)
+    (%play-move! st m)
+    (def g (%get st %game))
+    (def left (rest (%pz st 2)))
+    (def reply (move-parse-uci (game-pos g) (first left)))
+    (if (null? reply) (%finished! st lead)
+      (do (def san (move-san (game-pos g) reply))
+          (game-play! g reply)
+          (%pz! st 2 (rest left))
+          (%put! st %msg (Str8 append lead (%side-name (- 8 (pos-side (game-pos g)))) " replies " san ": your move."))))))
+
+; i in a puzzle: the solution's next move shown.
+(def %puzzle-hint!
+  (fn (_ st)
+    (def left (if (null? (%get st %puzzle)) () (%pz st 2)))
+    (unless (null? left)
+      (do (%pz! st 5 #t)
+          (tui-hint! st (move-parse-uci (game-pos (%get st %game)) (first left)))))))
+
+; m in a puzzle: the solution's next move made for you.
+(def %puzzle-answer!
+  (fn (_ st)
+    (def left (if (null? (%get st %puzzle)) () (%pz st 2)))
+    (unless (null? left)
+      (do (def p (game-pos (%get st %game)))
+          (def m (move-parse-uci p (first left)))
+          (%pz! st 5 #t)
+          (%puzzle-move! st m (Str8 append "The move is " (move-san p m) ".  "))))))
+
 ; --- keys --------------------------------------------------------------------------
 
 ; The characters a move is typed with.
@@ -288,7 +448,7 @@
   (fn (_ st fen)
     (%put! st %game (game-new fen))
     (%put! st %sel -1) (%put! st %review -1) (%put! st %hint 0) (%put! st %promo ())
-    (%put! st %eval ())
+    (%put! st %eval ()) (%put! st %puzzle ()) (%put! st %expect ())
     (tui-thinking-clear! st)
     (%put! st %msg "A new game.")))
 
@@ -300,7 +460,7 @@
       (#t (do (game-undo! g)
               ; your move and the engine's reply go back together
               (when (if (tui-engine-to-move? st) (not (null? (game-moves g))) #f) (game-undo! g))
-              (%put! st %sel -1) (%put! st %review -1) (%put! st %hint 0)
+              (%put! st %sel -1) (%put! st %review -1) (%put! st %hint 0) (%put! st %expect ())
               (%put! st %msg "Taken back."))))))
 
 ; Play the other side: the engine takes the one you had.
@@ -309,6 +469,7 @@
     (def h (%get st %human))
     (%put! st %human (match ((eq? h (lit white)) (lit black)) ((eq? h (lit black)) (lit white)) (#t (lit both))))
     (%put! st %view (if (eq? (%get st %human) (lit black)) 8 0))
+    (%put! st %expect ())
     (%put! st %msg (Str8 append "You play " (match ((eq? (%get st %human) (lit both)) "both sides")
                                                ((eq? (%get st %human) (lit black)) "black") (#t "white")) "."))))
 
@@ -339,7 +500,7 @@
       ((%is? key "]") (%review! st 1))
       ((if (%is? key "q") #t (eq? key (lit interrupt))) (%put! st %quit #t))
       ((%is? key "?") (%put! st %help #t))
-      ((%is? key "u") (%undo! st))
+      ((%is? key "u") (if (null? (%get st %puzzle)) (%undo! st) (%put! st %msg "In a puzzle: z goes on to the next one.")))
       ((%is? key "n") (%new-game! st ()))
       ((%is? key "v") (%put! st %view (- 8 (%get st %view))))
       ((%is? key "w") (%swap! st))
@@ -347,6 +508,10 @@
       ((%is? key "p") (%put! st %letters (not (%get st %letters))))
       ((%is? key "l") (%analyse! st))
       ((%is? key ":") (%put! st %command ""))
+      ((%is? key "z") (%puzzle-key! st))
+      ((%is? key "j") (%coach! st))
+      ((%is? key "i") (%puzzle-hint! st))
+      ((%is? key "m") (%puzzle-answer! st))
       (#t ()))))
 
 (def %is? (fn (_ key s) (if (str? key) (str=? key s) #f)))
@@ -354,13 +519,14 @@
 (def %analyse!
   (fn (_ st)
     (%put! st %analyse (not (%get st %analyse)))
+    (%put! st %expect ())
     (tui-thinking-clear! st)
     (%put! st %msg (if (%get st %analyse) "Analysing: both sides are yours; l stops." "Analysis stopped."))))
 
-; What the loop is asked for besides drawing: hint (i) or move-now (m)
-; are taken by the loop itself, which runs the engine.
+; Whether the loop takes KEY itself, to run the engine: a hint (i) or a
+; move now (m), but not in a puzzle, whose solution gives them.
 (def tui-loop-key?
-  (fn (_ key) (if (%is? key "i") #t (%is? key "m"))))
+  (fn (_ st key) (if (null? (%get st %puzzle)) (if (%is? key "i") #t (%is? key "m")) #f)))
 
 ; --- the mouse ---------------------------------------------------------------------
 
@@ -419,6 +585,10 @@
                 (player-quit! (%get st %engine))
                 (%put! st %engine pl)
                 (%put! st %msg (Str8 append "The engine is " (player-name pl) "."))))))
+      ((str=? cmd "coach") (%coach! st))
+      ((str=? cmd "puzzle")
+        (if (str=? arg "") (tui-puzzles! st (puzzle-list-source (puzzle-set)))
+          (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg)))) (tui-puzzles! st (puzzle-file-source arg)))))
       ((str=? cmd "save")
         (if (str=? arg "") (%put! st %msg "save takes a file name")
           (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg))))
@@ -569,21 +739,25 @@
 ; --- the panel ---------------------------------------------------------------------
 
 (def %material (list 0 1 3 3 5 9 0))
-(def %full-set (list 0 8 2 2 2 1 1))
 
-; What SIDE has taken from the other in P: the figures, and its material
-; lead in pawns.
-(def %taken
-  (fn (_ st p side)
-    ; how many of each piece, by its code, in one walk of the squares
+; How many of each piece P has, by its code, in one walk of the squares.
+(def %counts
+  (fn (_ p)
     (def counts (Vector make 16 0))
     (List for-each
       (fn (_ i) ((fn (_ pc) (Vector set! pc (+ 1 (Vector ref pc counts)) counts))
                  (pos-piece p (+ (* (int/ i 8) 16) (int% i 8)))))
       (List range 0 64))
+    counts))
+
+; What SIDE has taken from the other in P since the game's start: the
+; figures, and its material lead in pawns.
+(def %taken
+  (fn (_ st p side start)
+    (def counts (%counts p))
     (def count (fn (_ colour kind) (Vector ref (+ colour kind) counts)))
     (def other (- 8 side))
-    (def gone (List flat-map (fn (_ k) (List repeat (%max 0 (- (List ref k %full-set) (count other k))) k)) (list 5 4 3 2 1)))
+    (def gone (List flat-map (fn (_ k) (List repeat (%max 0 (- (Vector ref (+ other k) start) (count other k))) k)) (list 5 4 3 2 1)))
     (def worth
       (fn (_ colour) (List fold (fn (_ n k) (+ n (* (List ref k %material) (count colour k)))) 0 (list 1 2 3 4 5))))
     (def lead (- (worth side) (worth other)))
@@ -591,7 +765,7 @@
       (if (< 0 lead) (Str8 append " +" (io-display-to-str lead)) ""))))
 
 (def %strip!
-  (fn (_ st screen row side p over)
+  (fn (_ st screen row side p over start)
     (def g (%get st %game))
     (def to-move (if (= (pos-side p) side) (null? over) #f))
     (def who
@@ -602,7 +776,7 @@
              (Style make (if to-move (list (lit bold) (lit reverse)) ()) () ())))
     (def x2 (Screen put screen row (+ x 1) (Str8 append who " (" (%side-name side) ")")
               (Style make (if to-move (list (lit bold)) ()) () ())))
-    (Screen put screen row (+ x2 2) (%taken st p side) (Style make () 244 ()))))
+    (Screen put screen row (+ x2 2) (%taken st p side start) (Style make () 244 ()))))
 
 (def %panel-x (fn (_ st) (+ %left (* 8 (Vector ref 1 %layout-v)) 4)))
 
@@ -661,15 +835,23 @@
             (pair (list n (first ms) (if (null? (rest ms)) (pair "" 0) (first (rest ms)))) acc)))))
     (go padded (pos-full p) ())))
 
+(def %panel-title
+  (fn (_ st)
+    (match
+      ((not (null? (%get st %puzzle)))
+        (Str8 append "Puzzle " (io-display-to-str (%pz st 4)) " · " (%count-text st)
+          ((fn (_ r) (if (< 0 r) (Str8 append " · rated " (io-display-to-str r)) "")) (puzzle-rating (%pz st 1)))))
+      ((%get st %analyse) (Str8 append "Analysing with " (player-name (%get st %engine))))
+      (#t (Str8 append "Playing " (player-name (%get st %engine))
+            " · " (io-display-to-str (int/ (%get st %ms) 1000)) " s a move"
+            (if (%get st %coach) " · coached" ""))))))
+
 (def %draw-panel!
   (fn (_ st screen)
     (def x (%panel-x st))
     (def rows (Screen rows screen))
     (def bottom (- rows 3))
-    (Screen put screen 0 x
-      (Str8 append (if (%get st %analyse) "Analysing with " "Playing ") (player-name (%get st %engine))
-        (if (%get st %analyse) "" (Str8 append " · " (io-display-to-str (int/ (%get st %ms) 1000)) " s a move")))
-      (Style make (list (lit bold)) () ()))
+    (Screen put screen 0 x (%panel-title st) (Style make (list (lit bold)) () ()))
     (def think-rows (if (%get st %show-think) (%min 6 (%max 2 (int/ (- bottom 2) 3))) 0))
     (when (%get st %show-think)
       (%heading! screen 2 x "Thinking" (%get st %stats))
@@ -705,11 +887,13 @@
         "v      turn the board     w  play the other side"
         "i      hint               m  the engine moves now"
         "l      analyse            t  show or hide thinking"
+        "z      puzzles            j  the coach, on or off"
         "[ ]    back, forward      Home End  first, last"
         "p      letters or figures q  quit"
         ""
         ":fen FEN   :time S   :depth N   :engine CMD"
         ":save FILE   :white   :black   :both   :new"
+        ":puzzle [FILE]  lichess puzzles from FILE   :coach"
         ""
         "Any key closes this."))
 
@@ -725,7 +909,10 @@
       (List range 0 (List length %help-lines)))))
 
 (def %keys-line
-  "type or click a move · u back · v turn · i hint · m move now · l analyse · t thinking · ? keys · q quit")
+  "type or click a move · u back · v turn · i hint · m move now · l analyse · z puzzles · ? keys · q quit")
+
+(def %puzzle-keys-line
+  "type or click a move · i hint · m show the move · z next puzzle · n leave · ? keys · q quit")
 
 ; Draw ST on SCREEN, every cell.
 (def tui-draw!
@@ -744,17 +931,19 @@
         (%draw-board! st screen)
         (%draw-bar! st screen)
         (def over (game-result (%get st %game)))
-        (%strip! st screen (+ %top (* 8 h) 1) (%get st %view) p over)
-        (%strip! st screen 0 (- 8 (%get st %view)) p over)
+        (def start (%counts (%start-pos st)))
+        (%strip! st screen (+ %top (* 8 h) 1) (%get st %view) p over start)
+        (%strip! st screen 0 (- 8 (%get st %view)) p over start)
         (%draw-panel! st screen)
         (Screen put screen (- rows 2) 0 (%get st %msg) (Style make (list (lit bold)) () ()))
         (Screen put screen (- rows 1) 0
           (match ((not (null? (%get st %command))) (Str8 append ":" (%get st %command) "▏"))
                  ((not (str=? (%get st %input) "")) (Str8 append "Move: " (%get st %input) "▏   Enter plays it, Esc clears"))
-                 (#t %keys-line))
+                 ((null? (%get st %puzzle)) %keys-line)
+                 (#t %puzzle-keys-line))
           (Style make (if (if (null? (%get st %command)) (str=? (%get st %input) "") #f) (list (lit dim)) ()) () ()))
         (when (%get st %help) (%draw-help! screen))))))
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?
-  tui-draw!)
+  tui-draw! tui-puzzles!)

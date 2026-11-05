@@ -23,7 +23,7 @@ PRESS?), the columns and rows counted from 1 as a terminal reports them.
 1    ♖      ♘      ♗      ♕      ♔      ♗      ♘      ♖
      a      b      c      d      e      f      g      h
    ○  You (White)
-type or click a move · u back · v turn · i hint · m move now · l analyse · t thinking · ? keys · q q
+type or click a move · u back · v turn · i hint · m move now · l analyse · z puzzles · ? keys · q qu
 ```
 
 ### a smaller terminal takes squares of 3 by 1, letters drawn with p

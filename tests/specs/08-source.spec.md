@@ -20,7 +20,7 @@ clause in chess/ has one.
           acc)))))
 (write (List map
   (fn (_ file) (pair file (List length (walk (tok-read-str (%base) (Str8 append (File read-all (Str8 append "chess/" file)) " ")) ()))))
-  (list "app.x" "base.x" "board.x" "book.x" "cli.x" "engine.x" "game.x" "match.x" "play.x" "player.x" "pst.x" "san.x" "search.x" "show.x" "tables.x" "tui.x" "uci.x")))
+  (list "app.x" "base.x" "board.x" "book.x" "cli.x" "engine.x" "game.x" "match.x" "play.x" "player.x" "pst.x" "puzzle.x" "san.x" "search.x" "show.x" "tables.x" "tui.x" "uci.x")))
 ```
 ---
-    (("app.x" . 0) ("base.x" . 0) ("board.x" . 0) ("book.x" . 0) ("cli.x" . 0) ("engine.x" . 0) ("game.x" . 0) ("match.x" . 0) ("play.x" . 0) ("player.x" . 0) ("pst.x" . 0) ("san.x" . 0) ("search.x" . 0) ("show.x" . 0) ("tables.x" . 0) ("tui.x" . 0) ("uci.x" . 0))
+    (("app.x" . 0) ("base.x" . 0) ("board.x" . 0) ("book.x" . 0) ("cli.x" . 0) ("engine.x" . 0) ("game.x" . 0) ("match.x" . 0) ("play.x" . 0) ("player.x" . 0) ("pst.x" . 0) ("puzzle.x" . 0) ("san.x" . 0) ("search.x" . 0) ("show.x" . 0) ("tables.x" . 0) ("tui.x" . 0) ("uci.x" . 0))
