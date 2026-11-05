@@ -35,6 +35,7 @@
 (import chess/player player-builtin player-start player-name player-quit!)
 (import chess/puzzle puzzle-fen puzzle-title puzzle-rating puzzle-solution puzzle-judge puzzle-set
   puzzle-list-source puzzle-file-source puzzle-filter puzzle-range puzzle-library)
+(import chess/record record-path record-load record-add! record-unsolved record-score)
 
 (def %game 0)
 (def %view 1)       ; the side at the bottom: 0 white, 8 black
@@ -66,7 +67,9 @@
 (def %expect 27)      ; the reply the engine expects of you: (score move . san), or ()
 (def %choose 28)      ; whether the choice of puzzles is shown
 (def %band 29)        ; the rating band the choice picks from, an index of %bands
-(def %slots 30)
+(def %record 30)      ; the puzzles finished, read at first need: see chess/record
+(def %record-path 31) ; the file they are kept in
+(def %slots 32)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -101,6 +104,7 @@
     (%put! st %coach (opt (lit coach) #f))
     (%put! st %choose #f)
     (%put! st %band 0)
+    (%put! st %record-path (opt (lit record) (record-path)))
     (unless (null? (opt (lit puzzles) ())) (tui-puzzles! st (opt (lit puzzles) ())))
     st))
 
@@ -323,11 +327,19 @@
 (def %pz (fn (_ st i) (Vector ref i (%get st %puzzle))))
 (def %pz! (fn (_ st i v) (Vector set! i v (%get st %puzzle))))
 
-; Solve the puzzles SOURCE gives, one after another.
+; The puzzles finished, read from their file the first time they are
+; asked for.
+(def %record-of
+  (fn (_ st)
+    (when (null? (%get st %record)) (%put! st %record (record-load (%get st %record-path))))
+    (%get st %record)))
+
+; Solve the puzzles SOURCE gives, one after another, those solved before
+; passed over.
 (def tui-puzzles!
   (fn (_ st source)
     (def pz (Vector make 6 ()))
-    (Vector set! 0 source pz)
+    (Vector set! 0 (record-unsolved (%record-of st) source) pz)
     (Vector set! 3 0 pz)
     (Vector set! 4 0 pz)
     (%put! st %puzzle pz)
@@ -446,6 +458,7 @@
   (fn (_ st lead)
     (%pz! st 2 ())
     (unless (%pz st 5) (%pz! st 3 (+ 1 (%pz st 3))))
+    (record-add! (%record-of st) (%pz st 1) (not (%pz st 5)))
     (%put! st %msg (Str8 append lead (if (%pz st 5) "Done" "Solved") " (" (%count-text st) "): z for the next puzzle."))))
 
 ; M was right: it is made, and the first of LEFT, the line on from it,
@@ -1020,12 +1033,18 @@
         (when (%get st %help) (%draw-help! screen))
         (when (%get st %choose) (%draw-choice! st screen))))))
 
-; The choice of puzzles z shows, in the band chosen.
+; The choice of puzzles z shows, in the band chosen, with how many of
+; each you have solved of those you finished there.
 (def %draw-choice!
   (fn (_ st screen)
+    (def b (List ref (%get st %band) %bands))
+    (def score
+      (fn (_ c)
+        ((fn (_ s) (if (= 0 (rest s)) "" (Str8 append (io-display-to-str (first s)) " of " (io-display-to-str (rest s)) " solved")))
+         (record-score (%record-of st) (List ref 1 c) (List ref 1 b) (List ref 2 b)))))
     (def lines
-      (List append (list (Str8 append "Puzzles, " (first (List ref (%get st %band) %bands))) "")
-        (List map (fn (_ c) (Str8 append (first c) "   " (List ref 2 c))) %choices)
+      (List append (list (Str8 append "Puzzles, " (first b)) "")
+        (List map (fn (_ c) (Str8 append (first c) "   " (Str8 pad-right 22 #\space (List ref 2 c)) (score c))) %choices)
         (list "x   x-chess's own, unrated" "" "< >  another rating · any other key: back to the game")))
     (%draw-box! screen 58 lines)))
 

@@ -96,6 +96,12 @@ for you, `z` goes on to the next puzzle and `n` leaves the puzzles for
 a new game.  A puzzle counts as solved when it was solved with no wrong
 move, hint or move shown.
 
+Each rated puzzle finished is recorded, solved or missed, a line in
+`$X_CHESS_RECORD`, else `solved` in `$XDG_CACHE_HOME/x-chess` or
+`~/.cache/x-chess`.  A puzzle once solved is passed over after that,
+and the choice shows, beside each theme, how many of those finished in
+its band were solved.
+
 ## The coach
 
 `--coach`, `j` or `:coach` has the engine judge your moves.  When the

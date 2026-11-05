@@ -16,7 +16,7 @@
 (import chess/search MATE evaluate search-best best-move mate-score? mate-in)
 (import chess/mate mate-find mate-forced)
 (import chess/book polyglot-key polyglot-hex book-moves book-pick book-current book-use!)
-(import chess/tables tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe)
+(import chess/tables chess-env chess-cache-dir chess-dir-make! tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe)
 (import chess/san move-san moves-san move-parse)
 (import chess/game game-new game-pos game-start game-fen game-moves game-play! game-undo! game-repeats game-result game-movetext
   game-pgn)
@@ -28,7 +28,8 @@
   tui-puzzles!)
 (import chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
-  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library)
+  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines)
+(import chess/record record-path record-load record-add! record-solved? record-unsolved record-score)
 (import chess/app app-run)
 (import chess/show show-board)
 (import chess/engine engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
@@ -47,7 +48,7 @@
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft
   MATE evaluate search-best best-move mate-score? mate-in mate-find mate-forced
   polyglot-key polyglot-hex book-moves book-pick book-current book-use!
-  tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe
+  chess-env chess-cache-dir chess-dir-make! tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe
   move-san moves-san move-parse
   game-new game-pos game-start game-fen game-moves game-play! game-undo! game-repeats game-result game-movetext
   game-pgn player-builtin player-start player-name player-builtin? player-think player-new-game! player-quit!
@@ -56,7 +57,8 @@
   tui-puzzles!
   puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
-  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library
+  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines
+  record-path record-load record-add! record-solved? record-unsolved record-score
   app-run
   show-board chess-version uci-run uci-think-ms play-run chess-main chess-options
   engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
