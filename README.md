@@ -55,31 +55,40 @@ and `:` takes a command: `fen FEN`, `time S`, `depth N`, `engine CMD`,
 
 ## Puzzles
 
-x-chess comes with 21 puzzles: eight mates in one, seven in two, one in
-three, and five that win material (forks, a skewer, a pin, a discovered
-check).  `z` on the board, or `:puzzle`, offers the choice:
+x-chess ships 2,342 puzzles cut from the lichess puzzle database
+(<https://database.lichess.org/#puzzles>, CC0): mates in one to five,
+forks, pins, skewers, discovered attacks, trapped and hanging pieces,
+and endgames, each in five rating bands, below 1000 to 2200 and up.
+Of each theme and band they are the 40 most played of those players
+liked and whose rating is sure.  `z` on the board, or `:puzzle`, offers
+the choice, easiest first:
 
-    1        mate in one
-    2        mate in two
-    3        mate in three
-    w        win material
-    a        all of them, the easiest first
+    1 ... 5  mate in one to five
+    f p s    forks, pins, skewers
+    d        discovered attacks
+    t h      trapped pieces, pieces left hanging
+    e        endgames
+    a        all of them
+    x        the 21 made for x-chess, unrated
+    < >      another rating band
 
-`--puzzles FILE` or `:puzzles FILE` sets those of FILE, a CSV in the
-form of the lichess puzzle database
-(<https://database.lichess.org/#puzzles>), read a block at a time as
-the puzzles are asked for.  Puzzles are chosen by the database's theme
-names, which the built-in ones carry too: `--theme mateIn2`, `mate`
-(any mate), `fork`, `pin`, `skewer`, `crushing`, `endgame` and the
-rest, and by rating, `--rating 1500-1800` (`1500-` or `-1800` for one
-bound; the built-in ones have none and always pass).  `--puzzle` alone
-sets all the built-in ones; `:puzzle THEME` and `:puzzles FILE THEME
+`--puzzle` sets the shipped ones on the board, `--puzzles FILE` or
+`:puzzles FILE` those of FILE, a CSV in the database's form (the whole
+database, millions of lines, will do: it is read a block at a time as
+the puzzles are asked for).  Puzzles are chosen by the database's theme
+names, `--theme mateIn4`, `mate` (any mate), `fork`, `pin`, `crushing`,
+`endgame` and the rest, and by rating, `--rating 1500-1800` (`1500-` or
+`-1800` for one bound).  `:puzzle THEME` and `:puzzles FILE THEME
 LOW-HIGH` do the same on the board.
 
+    sh tools/puzzle-library.sh lichess_db_puzzle.csv.zst > chess/puzzles.csv
+
+cuts the shipped set again from a newer database; `PER` sets how many
+of each theme and band.
+
 You play the side to move.  A right move is answered with the
-solution's reply.  In a mate, any move that still mates in the moves
-left is right too: the engine finds the defence to it, for up to ten
-seconds.  In a puzzle, `i` marks the solution's next move, `m` makes it
+solution's reply, and any move that mates solves the puzzle, as on
+lichess.  In a puzzle, `i` marks the solution's next move, `m` makes it
 for you, `z` goes on to the next puzzle and `n` leaves the puzzles for
 a new game.  A puzzle counts as solved when it was solved with no wrong
 move, hint or move shown.

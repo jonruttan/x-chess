@@ -8,12 +8,13 @@
 ;
 ; A puzzle is a position with the side to move the solver's, and its
 ; solution in long algebraic: the solver's moves with the replies between
-; them.  The solver's move is right when it is the solution's; in a mate
-; puzzle, any move that still mates within the moves left is right too,
-; the engine finding the defence to it.
+; them.  The solver's move is right when it is the solution's, and any
+; move that mates solves the puzzle.
 ;
-; Puzzles come from the set here, made for this bundle, or from lines of
-; the lichess puzzle database's CSV (PuzzleId,FEN,Moves,Rating,...,Themes,
+; Puzzles come from the set here, made for this bundle, from the library
+; cut from the lichess database that the bundle ships (chess/puzzles.csv,
+; tools/puzzle-library.sh), or from any file of lines of the lichess
+; puzzle database's CSV (PuzzleId,FEN,Moves,Rating,...,Themes,
 ; ...), whose FEN is the position before the opponent's move that sets
 ; the puzzle: that move is made, and the rest are the solution.  Both
 ; carry the database's theme names (mateIn2, fork, crushing, ...), which
@@ -25,9 +26,9 @@
 (module chess/puzzle)
 
 (import chess/board pos-from-fen pos-fen pos-copy make! move-uci move-parse-uci legal-moves in-check? parse-int)
-(import chess/search search-best mate-score? mate-in)
-(import x/core/doors int/ str-make str-byte-sub io-display-to-str)
+(import x/core/doors int/ int% str-make str-byte-sub io-display-to-str)
 (import x/sys/file)
+(import x/sys/gc)
 
 (def puzzle-make
   (fn (_ fen solution name rating id themes)
@@ -75,12 +76,21 @@
              (#t (first themes))))
     (if (str=? (Vector ref 2 z) "") heading (Str8 append heading ": " (Vector ref 2 z)))))
 
-; Whether puzzle Z has THEME: "" is any puzzle, and mate any mate.
-(def puzzle-has?
-  (fn (_ z theme)
+; Whether THEMES hold THEME: "" is any puzzle's, and mate any mate's.
+(def %has-theme?
+  (fn (_ themes theme)
     (match ((str=? theme "") #t)
-           ((str=? theme "mate") (< 0 (puzzle-mate-in z)))
-           (#t (List any? (fn (_ t) (str=? t theme)) (puzzle-themes z))))))
+           ((str=? theme "mate") (List any? (fn (_ t) (Str8 starts? "mateIn" t)) themes))
+           (#t (List any? (fn (_ t) (str=? t theme)) themes)))))
+
+; Whether puzzle Z has THEME, as %has-theme? takes it.
+(def puzzle-has? (fn (_ z theme) (%has-theme? (puzzle-themes z) theme)))
+
+; Whether rating R is from LOW to HIGH, 0 being no bound; a puzzle with
+; no rating (0) always is.
+(def %rated?
+  (fn (_ r low high)
+    (if (= r 0) #t (if (if (= low 0) #t (< (- low 1) r)) (if (= high 0) #t (< r (+ high 1))) #f))))
 
 ; --- the set ------------------------------------------------------------------------
 ;
@@ -122,21 +132,31 @@
 
 ; --- the lichess database -----------------------------------------------------------
 
+; The fields of a line of the CSV, or () for a line that is not a
+; puzzle's (the header, or one too short or with no rating); the rating
+; and the themes of a puzzle's fields.
+(def %fields
+  (fn (_ line)
+    (def bare (if (Str8 ends? "\r" line) (str-byte-sub line 0 (- (Str8 length line) 1)) line))
+    ((fn (_ fs) (if (< (List length fs) 8) () (if (null? (parse-int (List ref 3 fs))) () fs)))
+     (Str8 split "," bare))))
+(def %fields-rating (fn (_ fs) (parse-int (List ref 3 fs))))
+(def %fields-themes (fn (_ fs) (%words (List ref 7 fs))))
+
 ; The puzzle LINE of the lichess CSV holds, or () when it holds none (the
 ; header, or a line that does not read).
 (def puzzle-from-csv
   (fn (_ line)
-    (def fields (Str8 split "," line))
+    (def fields (%fields line))
     (guard (e ())
-      (if (< (List length fields) 8) ()
+      (if (null? fields) ()
         (do (def p (pos-from-fen (List ref 1 fields)))
             (def moves (%words (List ref 2 fields)))
             (def setup (move-parse-uci p (first moves)))
             (if (null? setup) ()
               (do (make! p setup)
-                  (puzzle-make (pos-fen p) (rest moves) ""
-                    ((fn (_ r) (if (null? r) 0 r)) (parse-int (List ref 3 fields)))
-                    (first fields) (%words (List ref 7 fields))))))))))
+                  (puzzle-make (pos-fen p) (rest moves) "" (%fields-rating fields)
+                    (first fields) (%fields-themes fields)))))))))
 
 ; --- sources ------------------------------------------------------------------------
 ;
@@ -148,10 +168,10 @@
     (def left zs)
     (fn (_) (if (null? left) () ((fn (_ z) (set! left (rest left)) z) (first left))))))
 
-; The puzzles of the lichess CSV at PATH, read a block at a time as they
-; are asked for: the database runs to millions of lines.  Raises an io
-; Err when the file cannot be opened.
-(def puzzle-file-source
+; The lines of the file at PATH, read a block at a time as they are asked
+; for: a function answering the next, or () after the last.  Raises an
+; io Err when the file cannot be opened.
+(def %line-source
   (fn (_ path)
     (def fd (File open path (lit rdonly)))
     (when (< fd 0) (Err raise (lit io) (Str8 append "cannot open " path) path))
@@ -167,26 +187,58 @@
           ((fn (_ ls) (set! lines (List init ls)) (set! part (List last ls)))
            (Str8 split "\n" (Str8 append part (str-byte-sub buf 0 n))))
           (do (set! done #t) (File close fd)))))
-    (def line
-      (fn (self)
-        (match
-          ((not (null? lines)) ((fn (_ l) (set! lines (rest lines)) l) (first lines)))
-          (done (if (str=? part "") () ((fn (_ l) (set! part "") l) part)))
-          (#t (do (fill!) (self))))))
+    ; x collects only when asked, and splitting a line into its fields
+    ; makes about half a megabyte of garbage: a collect every 64 lines
+    ; bounds a long read
+    (def taken 0)
+    (fn (self)
+      (set! taken (+ taken 1))
+      (when (= 0 (int% taken 64)) (Heap collect))
+      (match
+        ((not (null? lines)) ((fn (_ l) (set! lines (rest lines)) l) (first lines)))
+        (done (if (str=? part "") () ((fn (_ l) (set! part "") l) part)))
+        (#t (do (fill!) (self)))))))
+
+; The puzzles of the lichess CSV at PATH with THEME ("" for any, as
+; puzzle-has? takes it) rated from LOW to HIGH (0 for no bound), read as
+; they are asked for: the database runs to millions of lines, and a line
+; is made a puzzle only once its theme and rating are known to fit.  A
+; line without the theme's name anywhere in it is passed over before it
+; is split, which is most of the cost of reading one.  Raises an io Err
+; when the file cannot be opened.
+(def puzzle-file-source
+  (fn (_ path theme low high)
+    (def line (%line-source path))
+    (def needle (if (str=? theme "mate") "mateIn" theme))
     (fn (self)
       (def l (line))
+      (def fs (if (null? l) () (if (if (str=? needle "") #f (null? (Str8 index-of needle l))) () (%fields l))))
       (match ((null? l) ())
-             (#t ((fn (_ z) (if (null? z) (self) z)) (puzzle-from-csv (Str8 replace "\r" "" l))))))))
+             ((null? fs) (self))
+             ((if (%has-theme? (%fields-themes fs) theme) (%rated? (%fields-rating fs) low high) #f)
+               ((fn (_ z) (if (null? z) (self) z)) (puzzle-from-csv l)))
+             (#t (self))))))
 
-; The puzzles of SOURCE with THEME ("" for any, as puzzle-has? takes it)
-; whose rating, when they have one, is from LOW to HIGH, 0 being no bound.
+; The puzzles of SOURCE with THEME rated from LOW to HIGH, as
+; puzzle-file-source takes them.
 (def puzzle-filter
   (fn (_ source theme low high)
-    (def rated?
-      (fn (_ r) (if (= r 0) #t (if (if (= low 0) #t (< (- low 1) r)) (if (= high 0) #t (< r (+ high 1))) #f))))
     (fn (self)
-      ((fn (_ z) (match ((null? z) ()) ((if (puzzle-has? z theme) (rated? (puzzle-rating z)) #f) z) (#t (self))))
+      ((fn (_ z)
+         (match ((null? z) ())
+                ((if (puzzle-has? z theme) (%rated? (puzzle-rating z) low high) #f) z)
+                (#t (self))))
        (source)))))
+
+; --- the library --------------------------------------------------------------------
+
+; lint-known: %lang-root
+; The path of the puzzles the bundle ships, or () when it was not started
+; as a lang and so does not know where it is.
+(def puzzle-library
+  (fn (_)
+    (def root (guard (e ()) %lang-root))
+    (if (str? root) (Str8 append root "/chess/puzzles.csv") ())))
 
 ; The range TEXT gives, LOW-HIGH, LOW- or -HIGH: (low . high), 0 for no
 ; bound, or () when it does not read as one.
@@ -207,35 +259,18 @@
     (make! q m)
     (if (null? (legal-moves q)) (in-check? q) #f)))
 
-; Whether M in P keeps a mate within K of the solver's moves: the engine
-; looks for the defence, for 10 s at most, and a mate it has not found
-; by then is not there.  A verdict as puzzle-judge answers it.
-(def %mate-kept
-  (fn (_ p m k left)
-    (def q (pos-copy p))
-    (make! q m)
-    ; a ply past the mate, which the search sees only when it is made
-    (def r (if (null? (legal-moves q)) () (search-best q (+ 1 (* 2 (- k 1))) 10000 0 (fn (_) #f) (fn (_ r) ()))))
-    (def s (if (null? r) 0 (List ref 1 r)))
-    (match
-      ((null? r) (if (in-check? q) (pair (lit solved) ()) (pair (lit wrong) left)))
-      ((if (mate-score? s) (if (< s 0) (< (- 0 (mate-in s)) k) #f) #f)
-        (pair (lit right) (List map move-uci (List ref 5 r))))
-      (#t (pair (lit wrong) left)))))
-
 ; What the solver's move M in P is for puzzle Z with LEFT of its solution
 ; still to play, and the line to play on after it: (right . LINE) with
-; the reply first, (solved . ()), or (wrong . LEFT).
+; the reply first, (solved . ()), or (wrong . LEFT).  A move that mates
+; solves any puzzle, as lichess has it.
 (def puzzle-judge
   (fn (_ z p m left)
-    (def k (+ 1 (int/ (List length left) 2)))
     (match
       ((str=? (move-uci m) (first left))
         (if (null? (rest left)) (pair (lit solved) ()) (pair (lit right) (rest left))))
-      ((= 0 (puzzle-mate-in z)) (pair (lit wrong) left))
-      ((= k 1) (if (%mates? p m) (pair (lit solved) ()) (pair (lit wrong) left)))
-      (#t (%mate-kept p m k left)))))
+      ((%mates? p m) (pair (lit solved) ()))
+      (#t (pair (lit wrong) left)))))
 
 (provide chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
-  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range
+  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source)
