@@ -4,18 +4,50 @@ A chess engine on x-lang, as a lang bundle: a game against the engine
 at the terminal, and the Universal Chess Interface for chess GUIs and
 other engines.
 
-    x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD]
+    x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters]
     x -l chess -- --uci
     x -l chess -- --perft N [--fen FEN]
     x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]
 
-On a terminal it is a game: you play white unless you say otherwise,
-and the engine answers each move.  Fed lines instead, it speaks UCI
+On a terminal it is a game on a board that fills the screen: you play
+white unless you say otherwise, and the engine answers each move.
+`--line` plays it a line at a time instead.  Fed lines, it speaks UCI
 when the first line is `uci`, as a GUI expects of an engine it starts,
 and otherwise plays the lines as moves and commands.  With no operands
 `x -l chess` is the lang's REPL, with the engine's functions in reach.
 
-## Playing
+## The board
+
+The squares are as large as the terminal allows (7 by 3 cells from 86
+by 29, 5 by 2 from 70 by 21, 3 by 1 down to 52 by 14).  Beside the board
+a bar shows who stands better; to the right are the engine's thinking,
+each depth's score and line as it finishes, and the moves, the last one
+marked.  The last move's squares are yellowed, a king in check is red.
+
+A move is typed (SAN or long algebraic, then Enter), or made with the
+mouse, a click on the piece then on its square, or with the arrows and
+Enter; a piece picked up shows where it can go.  A pawn reaching the
+last rank asks for its piece.  The keys that cannot begin a move are
+commands:
+
+    u        take back your move and the engine's reply
+    n        a new game
+    v        turn the board
+    w        play the other side
+    i        a hint, its squares marked
+    m        the engine moves now: it stops thinking, or plays for you
+    l        analyse: the engine thinks until a key is pressed, and both
+             sides are yours
+    t        show or hide the thinking
+    [ ]      back and forward through the game; Home, End
+    p        letters or figures for the pieces (also --letters)
+    ?        the keys
+    q        quit
+
+and `:` takes a command: `fen FEN`, `time S`, `depth N`, `engine CMD`,
+`save FILE` (the game as PGN), `white`, `black`, `both`, `new`.
+
+## Playing a line at a time
 
 A move is SAN (`e4`, `Nf3`, `exd5`, `O-O`, `e8=Q`) or long algebraic
 (`e2e4`, `e7e8q`).  Anything else is a command:
