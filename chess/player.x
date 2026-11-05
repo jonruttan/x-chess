@@ -13,7 +13,8 @@
 
 (module chess/player)
 
-(import chess/search search-best)
+(import chess/search best-move)
+(import chess/book book-current)
 (import chess/game game-pos)
 (import chess/engine engine-start engine-quit! engine-name engine-think engine-new-game!)
 
@@ -47,7 +48,7 @@
 (def player-think
   (fn (_ pl g depth ms poll info)
     (if (player-builtin? pl)
-      (search-best (game-pos g) (if (< depth 1) 64 depth) ms 0 poll info)
+      (best-move (game-pos g) (book-current) (if (< depth 1) 64 depth) ms 0 poll info)
       (engine-think (Vector ref 0 pl) g depth ms poll info))))
 
 (def player-new-game!

@@ -16,6 +16,8 @@ time.  The times in the info lines are taken out (spec-untimed).
 ```output
 id name x-chess 0.1.0
 id author Jon Ruttan
+option name OwnBook type check default false
+option name BookFile type string default <empty>
 uciok
 readyok
 info depth 1 score cp 50 nodes 34 pv g1f3
@@ -96,3 +98,30 @@ bestmove 0000
 ```
 ---
     (500 1875 106 30 6000 0)
+
+## options
+
+### OwnBook plays the book's move unsearched; BookFile names a book, empty for the built-in one; other names are said
+
+```chess
+(spec-lines (spec-untimed (spec-session (fn (_ io) (uci-run io ()))
+  (list "setoption name OwnBook value true"
+        "position startpos moves e2e4 e7e5 g1f3 g8f6" "go depth 1"
+        "setoption name BookFile value /nonexistent/book.bin" "go depth 1"
+        "setoption name BookFile value <empty>" "go depth 1"
+        "setoption name Hash value 16"
+        "setoption name OwnBook value false" "go depth 1"))))
+```
+---
+```output
+info string book move
+bestmove f3e5
+info depth 1 score cp 50 nodes 49 pv b1c3
+bestmove b1c3
+info string book move
+bestmove f3e5
+info string x-chess: no such option: hash
+info depth 1 score cp 50 nodes 49 pv b1c3
+bestmove b1c3
+
+```

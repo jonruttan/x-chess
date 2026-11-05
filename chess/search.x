@@ -30,6 +30,8 @@
 (import chess/pst pst-worth)
 (import chess/board pos-copy pos-side pos-half pos-middle pos-end pos-phase pos-piece
   move-from move-to move-promo move-uci in-check? gen-moves make! unmake! make-checked! legal-moves)
+(import chess/book book-pick)
+(import chess/tables tables-load! tables-men table-probe)
 
 (def MATE 30000)
 (def %infinity 32000)
@@ -233,8 +235,26 @@
     (match
       ((int= ply 0) (%search-node p depth alpha beta ply))
       ((int< 99 (pos-half p)) 0)
-      ((int< depth 1) (%quiesce p alpha beta ply))
-      (#t (%search-node p depth alpha beta ply)))))
+      ((int< 4 (pos-phase p)) (%search-deep p depth alpha beta ply))
+      (#t (%search-probed p depth alpha beta ply (table-probe p))))))
+
+(def %search-deep
+  (fn (_ p depth alpha beta ply)
+    (match ((int< depth 1) (%quiesce p alpha beta ply))
+           (#t (%search-node p depth alpha beta ply)))))
+
+; Few men left: the endgame tables, when they hold P, give its exact
+; score, V the plies to mate as table-probe answers it.
+(def %search-probed
+  (fn (_ p depth alpha beta ply v)
+    (match ((null? v) (%search-deep p depth alpha beta ply))
+           (#t (%table-score v ply)))))
+
+(def %table-score
+  (fn (_ v ply)
+    (match ((int= v 0) 0)
+           ((int< 0 v) (int- MATE (int+ ply (int- v 1))))
+           (#t (int- (int+ ply (int- (int- 0 v) 1)) MATE)))))
 
 (def %search-node
   (fn (_ p depth alpha beta ply)
@@ -346,6 +366,56 @@
     (guard (e (match ((eq? (Err label e) (lit chess-done)) (e data)) (#t (error e))))
       (search p depth ms nodes poll info))))
 
+; --- the engine's move -----------------------------------------------------------
+;
+; What the engine plays: a move of BOOK's when it has one for P (BOOK
+; as chess/book.x takes it, () for none), else the endgame tables'
+; best when they hold P, else the search's.  With two men or fewer
+; beside the kings the tables are read or built first, so the search
+; finds them for what its captures lead to.  A book move's report is
+; (0 0 0 0 move (move)); a table move's (1 score 0 microseconds move
+; (move)), its score a mate score when the position is won or lost.
+; INFO hears of neither.
+(def best-move
+  (fn (_ p book depth ms nodes poll info)
+    (def from-book (match ((null? book) ()) (#t (guard (e ()) (book-pick book p)))))
+    (match ((null? from-book) (%table-or-search p depth ms nodes poll info))
+           (#t (list 0 0 0 0 from-book (list from-book))))))
+
+(def %table-or-search
+  (fn (_ p depth ms nodes poll info)
+    (def t0 (Sys clock))
+    (match ((int< (tables-men p) 3) (tables-load!)) (#t ()))
+    ((fn (_ r) (match ((null? r) (search-best p depth ms nodes poll info)) (#t r)))
+     (%table-move (pos-copy p) t0))))
+
+; The legal move of P the tables score best, or () when they do not
+; hold P.
+(def %table-move
+  (fn (_ p t0)
+    (match ((null? (table-probe p)) ())
+           (#t (%table-best p (legal-moves p) 0 (int- 0 %infinity) t0)))))
+
+(def %table-best
+  (fn (self p ms best score t0)
+    (match ((null? ms) (match ((int= best 0) ()) (#t (list 1 score 0 (int- (Sys clock) t0) best (list best)))))
+           (#t (%table-next p ms best score t0 (%table-after p (first ms)))))))
+
+(def %table-next
+  (fn (_ p ms best score t0 s)
+    (match ((int< score s) (%table-best p (rest ms) (first ms) s t0))
+           (#t (%table-best p (rest ms) best score t0)))))
+
+; Move M's score from the mover's view: the tables' answer for the
+; position it leads to, turned round.
+(def %table-after
+  (fn (_ p m)
+    (make! p m)
+    (def v (table-probe p))
+    (unmake! p m)
+    (match ((null? v) (int- 0 %infinity))
+           (#t (int- 0 (%table-score v 1))))))
+
 (def mate-score? (fn (_ s) (match ((int< (int- MATE 1000) s) #t) ((int< s (int- 1000 MATE)) #t) (#t #f))))
 
 ; Moves to mate for a mate score: positive when the side to move mates.
@@ -354,4 +424,4 @@
     (match ((int< 0 s) (int/ (int+ (int- MATE s) 1) 2))
            (#t (int- 0 (int/ (int+ s MATE) 2))))))
 
-(provide chess/search MATE evaluate search-best mate-score? mate-in)
+(provide chess/search MATE evaluate search-best best-move mate-score? mate-in)

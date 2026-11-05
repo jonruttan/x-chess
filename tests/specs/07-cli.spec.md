@@ -16,6 +16,25 @@ chess/cli: the options, and what is answered without a game.
 ---
     ((('fen . "8/8/8/8/8/8/8/K6k w - -") ('depth . 4) ('seconds . 3) ('side . 'black)) (('error . "--time takes a number of seconds")) (('error . "--depth takes a number of plies")) (('error . "no such option: --zap")))
 
+### --book takes a file, --no-book none, --tables builds the endgame tables
+
+```chess
+(write (list (chess-options (list "--book" "openings.bin") ())
+             (chess-options (list "--no-book" "--tables") ())
+             (chess-options (list "--book") ())))
+```
+---
+    ((('book . "openings.bin")) (('tables . #t) ('book . 'none)) (('error . "--book takes a Polyglot file")))
+
+### a book that is not there is refused before play
+
+```chess
+(write (chess-main (list "--book" "/nonexistent/book.bin")))
+```
+---
+    2
+
+
 ## answered without a game
 
 ### --version and --perft write their answer and succeed

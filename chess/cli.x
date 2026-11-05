@@ -7,9 +7,11 @@
 ; @license MIT No Attribution (MIT-0)
 ;
 ;   x -l chess -- [--white|--black|--both] [--fen FEN] [--time S] [--depth N] [--think] [--engine CMD]
+;                  [--book FILE|--no-book]
 ;   x -l chess -- --uci
 ;   x -l chess -- --perft N [--fen FEN]
 ;   x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time S] [--depth N]
+;   x -l chess -- --tables
 ;
 ; On a terminal it is a game against the engine.  Otherwise it reads
 ; lines: when the first is `uci` it speaks UCI, as a chess GUI expects
@@ -22,7 +24,7 @@
 (import x/sys/file)
 (import x/repl/term)
 (import x/repl/line)
-(import x/core/doors str-make str-byte-ref str-byte-len str-byte-sub io-display-to-str)
+(import x/core/doors str-make str-byte-ref str-byte-len str-byte-sub io-display-to-str int/ int%)
 (import chess/board fen-start pos-from-fen perft parse-int)
 (import chess/uci chess-version uci-run)
 (import chess/play play-run)
@@ -30,13 +32,17 @@
 (import chess/match match-run)
 (import chess/app app-run)
 (import x/sys/date)
+(import chess/book book-use!)
+(import chess/tables tables-dir tables-allow-build! tables-build!)
 
 (def %usage
   (Str8 join "\n"
     (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters]"
+          "                         [--book FILE|--no-book]"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
           "       x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]"
+          "       x -l chess -- --tables"
           ""
           "A game against the engine on a terminal, the board filling it (? lists the keys);"
           "--line plays it a line at a time instead (help lists the commands), --letters draws"
@@ -45,6 +51,8 @@
           "--engine plays a UCI engine, CMD its program and arguments, in place of x-chess."
           "--match plays games between two engines (x-chess the first unless two are named),"
           "the PGN on standard output and the score on standard error."
+          "It opens from its own book; --book FILE plays from a Polyglot book instead,"
+          "--no-book from none.  --tables builds the endgame tables now and keeps them."
           "")))
 
 (def %say (fn (_ fd text) (Sys fd-write fd text)))
@@ -59,7 +67,9 @@
         (pair "--letters" (pair (lit letters) #t))
         (pair "--help" (pair (lit help) #t))
         (pair "-h" (pair (lit help) #t))
-        (pair "--version" (pair (lit version) #t))))
+        (pair "--version" (pair (lit version) #t))
+        (pair "--no-book" (pair (lit book) (lit none)))
+        (pair "--tables" (pair (lit tables) #t))))
 
 ; The options in ARGS as an alist, or ((error . TEXT)).
 (def chess-options
@@ -78,6 +88,9 @@
       ((str=? a "--fen")
         (if (null? value) (list (pair (lit error) "--fen takes a position"))
           (self (List drop 2 args) (pair (pair (lit fen) value) opts))))
+      ((str=? a "--book")
+        (if (null? value) (list (pair (lit error) "--book takes a Polyglot file"))
+          (self (List drop 2 args) (pair (pair (lit book) value) opts))))
       ((str=? a "--time") (number (lit seconds) 1 "a number of seconds"))
       ((str=? a "--depth") (number (lit depth) 1 "a number of plies"))
       ((str=? a "--perft") (number (lit perft) 0 "a depth"))
@@ -179,7 +192,8 @@
     (def engines (%engines opts))
     (guard (e (do (%say 2 (Str8 append "x-chess: " (e msg) "\n")) 2))
       (do (def pl (player-start (if (null? engines) () (first engines))))
-          (if board (app-run (pair (pair (lit engine) pl) (%game-opts opts)))
+          ; the board has no line to say the endgame tables are building on
+          (if board (do (tables-allow-build! #f) (app-run (pair (pair (lit engine) pl) (%game-opts opts))))
             (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line))))))
 
 (def %session
@@ -236,7 +250,28 @@
       ((not (null? bad-fen)) (do (%say 2 (Str8 append "x-chess: " bad-fen "\n")) 2))
       ((not (null? (%opt opts (lit perft)))) (%perft-main opts))
       ((< 2 (List length (%engines opts))) (do (%say 2 "x-chess: at most two engines play\n") 2))
-      ((not (null? (%opt opts (lit match)))) (%match-main opts))
-      (#t (%session opts)))))
+      ((not (null? (%opt opts (lit tables)))) (%tables-main))
+      ((%bad-book? (%opt opts (lit book)))
+        (do (%say 2 (Str8 append "x-chess: no book at " (%opt opts (lit book)) "\n")) 2))
+      ((not (null? (%opt opts (lit match)))) (do (%use-book! (%opt opts (lit book))) (%match-main opts)))
+      (#t (do (%use-book! (%opt opts (lit book))) (tables-allow-build! #t) (%session opts))))))
+
+; --book FILE plays from FILE, --no-book from none, neither from the
+; built-in book.
+(def %use-book!
+  (fn (_ b)
+    (match ((null? b) ()) ((eq? b (lit none)) (book-use! ())) (#t (book-use! b)))))
+
+(def %bad-book? (fn (_ b) (if (str? b) (not (File exists? b)) #f)))
+
+; Build the endgame tables and keep them where they are looked for.
+(def %tables-main
+  (fn (_)
+    (def dir (tables-dir))
+    (def secs (fn (_ us) (Str8 append (io-display-to-str (int/ us 1000000)) "." (io-display-to-str (int/ (int% us 1000000) 100000)) " s")))
+    (def times (tables-build! dir))
+    (%say 1 (Str8 append "x-chess: KQK " (secs (first times)) ", KRK " (secs (List ref 1 times))
+              ", KPK " (secs (List ref 2 times)) (if (null? dir) ", kept in memory only\n" (Str8 append ", kept in " dir "\n"))))
+    0))
 
 (provide chess/cli chess-main chess-options)

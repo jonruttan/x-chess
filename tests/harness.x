@@ -11,6 +11,11 @@
 (import chess/base)
 (import x/sys/gc)
 
+; The engine opens from its built-in book, a random line; the specs
+; play from none unless they ask, so a move the engine makes is the
+; search's and the same every run.
+(book-use! ())
+
 ; What RUN, uci-run or play-run with its other arguments given, writes
 ; when it reads LINES: the IO it is handed reads them in turn, then the
 ; end of input, and nothing is ever waiting while it thinks.  The heap
