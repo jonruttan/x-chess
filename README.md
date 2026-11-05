@@ -6,7 +6,7 @@ other engines.
 
     x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]
                   [--book FILE|--no-book]
-    x -l chess -- --puzzle | --puzzles FILE
+    x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH]
     x -l chess -- --uci
     x -l chess -- --perft N [--fen FEN]
     x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]
@@ -51,20 +51,38 @@ commands:
 
 and `:` takes a command: `fen FEN`, `time S`, `depth N`, `engine CMD`,
 `save FILE` (the game as PGN), `white`, `black`, `both`, `new`,
-`puzzle [FILE]`, `coach`.
+`puzzle [THEME]`, `puzzles FILE [THEME] [LOW-HIGH]`, `coach`.
 
 ## Puzzles
 
-`--puzzle`, `z` on the board, or `:puzzle` sets the puzzles made for
-x-chess, mates in one and two; `--puzzles FILE` or `:puzzle FILE` sets
-those of FILE, a CSV in the form of the lichess puzzle database
+x-chess comes with 21 puzzles: eight mates in one, seven in two, one in
+three, and five that win material (forks, a skewer, a pin, a discovered
+check).  `z` on the board, or `:puzzle`, offers the choice:
+
+    1        mate in one
+    2        mate in two
+    3        mate in three
+    w        win material
+    a        all of them, the easiest first
+
+`--puzzles FILE` or `:puzzles FILE` sets those of FILE, a CSV in the
+form of the lichess puzzle database
 (<https://database.lichess.org/#puzzles>), read a block at a time as
-the puzzles are asked for.  You play the side to move.  A right move is
-answered with the solution's reply; a move that mates where the
-solution mates is right too.  In a puzzle, `i` marks the solution's
-next move, `m` makes it for you, `z` goes on to the next puzzle and `n`
-leaves the puzzles for a new game.  A puzzle counts as solved when it
-was solved with no wrong move, hint or move shown.
+the puzzles are asked for.  Puzzles are chosen by the database's theme
+names, which the built-in ones carry too: `--theme mateIn2`, `mate`
+(any mate), `fork`, `pin`, `skewer`, `crushing`, `endgame` and the
+rest, and by rating, `--rating 1500-1800` (`1500-` or `-1800` for one
+bound; the built-in ones have none and always pass).  `--puzzle` alone
+sets all the built-in ones; `:puzzle THEME` and `:puzzles FILE THEME
+LOW-HIGH` do the same on the board.
+
+You play the side to move.  A right move is answered with the
+solution's reply.  In a mate, any move that still mates in the moves
+left is right too: the engine finds the defence to it, for up to ten
+seconds.  In a puzzle, `i` marks the solution's next move, `m` makes it
+for you, `z` goes on to the next puzzle and `n` leaves the puzzles for
+a new game.  A puzzle counts as solved when it was solved with no wrong
+move, hint or move shown.
 
 ## The coach
 

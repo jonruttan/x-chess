@@ -33,7 +33,7 @@
       ((< (- %limit 1) (List length (game-moves g))) (pair "1/2-1/2" "the move limit"))
       (#t ((fn (_ r)
              (if (null? r)
-               (pair (if (eq? mover white) "0-1" "1-0") (Str8 append (player-name mover) " gave no move"))
+               (pair (if (= (pos-side (game-pos g)) 0) "0-1" "1-0") (Str8 append (player-name mover) " gave no move"))
                (do (game-play! g (List ref 4 r)) (self g white black depth ms))))
            (player-think mover g depth ms (fn (_) #f) (fn (_ r) ())))))))
 
