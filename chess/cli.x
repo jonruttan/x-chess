@@ -6,9 +6,10 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-;   x -l chess -- [--white|--black|--both] [--fen FEN] [--time S] [--depth N]
+;   x -l chess -- [--white|--black|--both] [--fen FEN] [--time S] [--depth N] [--think] [--engine CMD]
 ;   x -l chess -- --uci
 ;   x -l chess -- --perft N [--fen FEN]
+;   x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time S] [--depth N]
 ;
 ; On a terminal it is a game against the engine.  Otherwise it reads
 ; lines: when the first is `uci` it speaks UCI, as a chess GUI expects
@@ -25,15 +26,22 @@
 (import chess/board fen-start pos-from-fen perft parse-int)
 (import chess/uci chess-version uci-run)
 (import chess/play play-run)
+(import chess/player player-builtin player-start player-quit!)
+(import chess/match match-run)
+(import x/sys/date)
 
 (def %usage
   (Str8 join "\n"
-    (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N]"
+    (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD]"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
+          "       x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]"
           ""
           "A game against the engine on a terminal; help lists the commands there."
           "Fed lines, it speaks UCI when the first is `uci`, else plays them as moves."
+          "--engine plays a UCI engine, CMD its program and arguments, in place of x-chess."
+          "--match plays games between two engines (x-chess the first unless two are named),"
+          "the PGN on standard output and the score on standard error."
           "")))
 
 (def %say (fn (_ fd text) (Sys fd-write fd text)))
@@ -43,6 +51,7 @@
         (pair "--black" (pair (lit side) (lit black)))
         (pair "--both" (pair (lit side) (lit both)))
         (pair "--uci" (pair (lit uci) #t))
+        (pair "--think" (pair (lit think) #t))
         (pair "--help" (pair (lit help) #t))
         (pair "-h" (pair (lit help) #t))
         (pair "--version" (pair (lit version) #t))))
@@ -67,6 +76,10 @@
       ((str=? a "--time") (number (lit seconds) 1 "a number of seconds"))
       ((str=? a "--depth") (number (lit depth) 1 "a number of plies"))
       ((str=? a "--perft") (number (lit perft) 0 "a depth"))
+      ((str=? a "--match") (number (lit match) 1 "a number of games"))
+      ((str=? a "--engine")
+        (if (null? value) (list (pair (lit error) "--engine takes a command"))
+          (self (List drop 2 args) (pair (pair (lit engine) value) opts))))
       (#t (list (pair (lit error) (Str8 append "no such option: " a)))))))
 
 (def %opt (fn (_ opts k) ((fn (_ p) (if (null? p) () (rest p))) (Assoc find k opts))))
@@ -143,7 +156,24 @@
       (if (null? (%opt opts (lit fen))) () (list (pair (lit fen) (%opt opts (lit fen)))))
       (if (null? (%opt opts (lit side))) () (list (pair (lit side) (%opt opts (lit side)))))
       (if (null? secs) () (list (pair (lit ms) (* secs 1000))))
-      (if (null? (%opt opts (lit depth))) () (list (pair (lit depth) (%opt opts (lit depth))))))))
+      (if (null? (%opt opts (lit depth))) () (list (pair (lit depth) (%opt opts (lit depth)))))
+      (if (null? (%opt opts (lit think))) () (list (pair (lit think) #t))))))
+
+; The --engine commands in OPTS, in the order given.
+(def %engines
+  (fn (_ opts)
+    (List reverse (List map rest (List filter (fn (_ o) (eq? (first o) (lit engine))) opts)))))
+
+; Today as PGN dates it.
+(def %pgn-date
+  (fn (_) (Str8 replace "-" "." (Str8 slice 0 10 (Date ->iso (Date local (Sys now)))))))
+
+(def %game-session
+  (fn (_ io opts first-line)
+    (def engines (%engines opts))
+    (guard (e (do (%say 2 (Str8 append "x-chess: " (e msg) "\n")) 2))
+      (do (def pl (player-start (if (null? engines) () (first engines))))
+          (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line)))))
 
 (def %session
   (fn (_ opts)
@@ -154,12 +184,36 @@
     (def io (%io tty))
     (match
       ((not (null? (%opt opts (lit uci)))) (uci-run io ()))
-      (tty (play-run io (%game-opts opts) ()))
+      (tty (%game-session io opts ()))
       (#t ((fn (_ line)
              (match ((null? line) 0)
                     ((str=? (Str8 trim line) "uci") (uci-run io line))
-                    (#t (play-run io (%game-opts opts) line))))
+                    (#t (%game-session io opts line))))
            (%pipe-line))))))
+
+; --match: the PGN on standard output, the score on standard error.
+(def %match-main
+  (fn (_ opts)
+    (def engines (%engines opts))
+    (def secs (%opt opts (lit seconds)))
+    (def started ())
+    (def start (fn (_ cmd) ((fn (_ pl) (set! started (pair pl started)) pl) (player-start cmd))))
+    (def status
+      (guard (e (do (%say 2 (Str8 append "x-chess: " (e msg) "\n")) 2))
+        (do (def a (if (< (List length engines) 2) (player-builtin) (start (first engines))))
+            (def b (match ((null? engines) (player-builtin))
+                          ((null? (rest engines)) (start (first engines)))
+                          (#t (start (List ref 1 engines)))))
+            (match-run a b (%opt opts (lit match))
+              (list (pair (lit fen) (%opt opts (lit fen)))
+                    (pair (lit depth) (if (null? (%opt opts (lit depth))) 0 (%opt opts (lit depth))))
+                    (pair (lit ms) (if (null? secs) 1000 (* secs 1000)))
+                    (pair (lit date) (%pgn-date)))
+              (fn (_ text) (%say 1 text))
+              (fn (_ text) (%say 2 text)))
+            0)))
+    (List for-each player-quit! started)
+    status))
 
 ; Run the command line ARGS; answers the exit status.
 (def chess-main
@@ -174,6 +228,8 @@
       ((not (null? (%opt opts (lit version)))) (do (%say 1 (Str8 append "x-chess " chess-version "\n")) 0))
       ((not (null? bad-fen)) (do (%say 2 (Str8 append "x-chess: " bad-fen "\n")) 2))
       ((not (null? (%opt opts (lit perft)))) (%perft-main opts))
+      ((< 2 (List length (%engines opts))) (do (%say 2 "x-chess: at most two engines play\n") 2))
+      ((not (null? (%opt opts (lit match)))) (%match-main opts))
       (#t (%session opts)))))
 
 (provide chess/cli chess-main chess-options)

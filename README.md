@@ -4,9 +4,10 @@ A chess engine on x-lang, as a lang bundle: a game against the engine
 at the terminal, and the Universal Chess Interface for chess GUIs and
 other engines.
 
-    x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N]
+    x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD]
     x -l chess -- --uci
     x -l chess -- --perft N [--fen FEN]
+    x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]
 
 On a terminal it is a game: you play white unless you say otherwise,
 and the engine answers each move.  Fed lines instead, it speaks UCI
@@ -31,10 +32,31 @@ A move is SAN (`e4`, `Nf3`, `exd5`, `O-O`, `e8=Q`) or long algebraic
     time SECONDS   how long the engine thinks (5 s)
     depth N        how deep it looks at most
     board, flip    show the board, turn it around
+    think          show the engine's thinking as it goes, or stop showing it
+    engine [CMD]   play a UCI engine, CMD its program and arguments, or
+                   x-chess again; alone, name the engine played
     help, quit
 
 A game ends at checkmate, stalemate, the fifty-move rule, threefold
 repetition, or when neither side has the material to mate.
+
+## Other engines
+
+Any program that speaks UCI can take x-chess's place: `--engine
+stockfish` plays a game against Stockfish, `engine stockfish` switches
+to it during one, and `--think` (or `think`) shows each depth's score
+and line as the engine finishes it, whichever engine it is.  The
+command is split at spaces, so arguments may follow the program.
+
+`--match GAMES` plays games between two engines, x-chess against the
+one `--engine` names, or the two named; each takes white in turn.  The
+games go to standard output as PGN, and a line for each game and the
+score to standard error:
+
+    x -l chess -- --match 10 --engine stockfish --time 1 > games.pgn
+
+A game still going after 600 plies is a draw, and an engine that gives
+no move loses.
 
 ## UCI
 
@@ -62,7 +84,8 @@ then the total.  While it thinks it reads `stop`, `quit` and `isready`.
   and least valuable attacker, then two killer moves a ply.  A side in
   check looks a ply further.  A clock or node limit holds from the
   first ply: stopped before any move is searched, it plays the first
-  legal one.
+  legal one.  Each ply keeps the line that raised alpha there, so a
+  finished depth reports the whole line it expects, not only its move.
 - The evaluation is Tomasz Michniewski's Simplified Evaluation Function,
   material and piece-square tables with a middle-game and an end-game
   king, blended by phase and kept up to date as pieces move.

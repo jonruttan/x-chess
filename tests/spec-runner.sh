@@ -37,6 +37,10 @@ export SPEC_RUNNER_DIR
 sh "$BUNDLE/tests/gen-harness.sh" "$X_ROOT" "$BUNDLE"
 
 LANG_LIB="$BUNDLE/tests/lib/harness.gen.x"
+
+# Where the specs find tests/fake-engine.sh, a UCI engine to start.
+CHESS_TESTS="$BUNDLE/tests"
+export CHESS_TESTS
 # SPEC_PATH is env-overridable so a single spec file can be run in isolation.
 SPEC_PATH="${SPEC_PATH:-$BUNDLE/tests/specs}"
 

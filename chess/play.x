@@ -18,9 +18,10 @@
 (import x/sys/gc)
 (import x/core/doors io-display-to-str int/ int% int*)
 (import chess/board pos-side in-check? legal-moves parse-int)
-(import chess/search search-best mate-score? mate-in)
+(import chess/search mate-score? mate-in)
 (import chess/game game-new game-pos game-fen game-moves game-play! game-undo! game-result game-movetext)
-(import chess/san move-san move-parse)
+(import chess/san move-san moves-san move-parse)
+(import chess/player player-builtin player-start player-name player-think player-quit!)
 (import chess/show show-board)
 (import chess/uci chess-version)
 
@@ -40,6 +41,8 @@
           "  time SECONDS   how long the engine thinks (now %t)"
           "  depth N        how deep it looks at most (now %d)"
           "  board, flip    show the board, turn it around"
+          "  think          show the engine's thinking, or stop showing it"
+          "  engine [CMD]   play a UCI engine, or x-chess again; alone, name the engine"
           "  help, quit"
           "")))
 
@@ -52,6 +55,8 @@
 (def %s-depth 3)
 (def %s-view 4)
 (def %s-fresh 5)
+(def %s-engine 6)
+(def %s-think 7)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %put! (fn (_ st i v) (Vector set! i v st)))
@@ -78,10 +83,25 @@
         (io-display-to-str (int/ (if (< s 0) (- 0 s) s) 100)) "."
         ((fn (_ c) (Str8 append (if (< c 10) "0" "") (io-display-to-str c))) (int% (if (< s 0) (- 0 s) s) 100))))))
 
-; The engine's choice in ST's game: the search's last report.
+; The engine's choice in ST's game: its last report, each depth's shown
+; as it finishes when thinking is shown.
 (def %think
-  (fn (_ st)
-    (search-best (game-pos (%get st %s-game)) (%get st %s-depth) (%get st %s-ms) 0 (fn (_) #f) (fn (_ r) ()))))
+  (fn (_ io st)
+    (def g (%get st %s-game))
+    (player-think (%get st %s-engine) g (%get st %s-depth) (%get st %s-ms) (fn (_) #f)
+      (fn (_ r) (when (%get st %s-think) (%say io (%thinking-text (game-pos g) r)))))))
+
+; A report as a line of thinking: depth, score, the line in SAN, the work.
+(def %thinking-text
+  (fn (_ p r)
+    (Str8 append "  " (Str8 pad-left 2 #\space (io-display-to-str (List ref 0 r))) "  "
+      (Str8 pad-left 7 #\space (%score-text (List ref 1 r))) "  "
+      (Str8 join " " (moves-san p (List ref 5 r)))
+      "  (" (io-display-to-str (List ref 2 r)) " nodes, " (%seconds (List ref 3 r)) ")\n")))
+
+(def %seconds
+  (fn (_ us)
+    (Str8 append (io-display-to-str (int/ us 1000000)) "." (io-display-to-str (int/ (int% us 1000000) 100000)) " s")))
 
 (def %report-text
   (fn (_ r)
@@ -94,11 +114,26 @@
 (def %engine-move!
   (fn (_ io st)
     (def g (%get st %s-game))
-    (def r (%think st))
-    (def san (move-san (game-pos g) (List ref 4 r)))
-    (game-play! g (List ref 4 r))
-    (%put! st %s-fresh #t)
-    (%say io (Str8 append "x-chess plays " san "  (" (%report-text r) ")\n"))))
+    (def r (%think io st))
+    (if (null? r)
+      (do (%say io (Str8 append (player-name (%get st %s-engine)) " has no move: you play both sides.\n"))
+          (%put! st %s-human (lit both)))
+      (do (def san (move-san (game-pos g) (List ref 4 r)))
+          (game-play! g (List ref 4 r))
+          (%put! st %s-fresh #t)
+          (%say io (Str8 append (player-name (%get st %s-engine)) " plays " san "  (" (%report-text r) ")\n"))))))
+
+; Play against the engine COMMAND names (x-chess's own when ()), the one
+; played until now let go.
+(def %engine!
+  (fn (_ io st command)
+    (if (null? command)
+      (%say io (Str8 append "The engine is " (player-name (%get st %s-engine)) ".\n"))
+      (guard (e (%say io (Str8 append "x-chess: " (e msg) "\n")))
+        (do (def pl (player-start command))
+            (player-quit! (%get st %s-engine))
+            (%put! st %s-engine pl)
+            (%say io (Str8 append "The engine is " (player-name pl) ".\n")))))))
 
 (def %show
   (fn (_ io st)
@@ -145,6 +180,11 @@
       ((str=? cmd "white") (do (%play-as! st (lit white)) #t))
       ((str=? cmd "black") (do (%play-as! st (lit black)) #t))
       ((str=? cmd "both") (do (%put! st %s-human (lit both)) #t))
+      ((str=? cmd "think")
+        (do (%put! st %s-think (not (%get st %s-think)))
+            (%say io (if (%get st %s-think) "Thinking is shown.\n" "Thinking is not shown.\n"))
+            #t))
+      ((str=? cmd "engine") (do (%engine! io st arg) #t))
       ((str=? cmd "new") (do (%put! st %s-game (game-new ())) (%put! st %s-fresh #t) #t))
       ((str=? cmd "undo") (do (%undo! io st) #t))
       ((str=? cmd "moves")
@@ -161,8 +201,8 @@
         (do (if (< 0 (%num arg)) (%put! st %s-depth (%num arg)) (%say io "x-chess: depth takes a number of plies\n")) #t))
       ((str=? cmd "hint")
         (do (if (null? (game-result g))
-              ((fn (_ r) (%say io (Str8 append "x-chess suggests " (move-san (game-pos g) (List ref 4 r)) "  (" (%report-text r) ")\n")))
-               (%think st))
+              ((fn (_ r) (%say io (Str8 append (player-name (%get st %s-engine)) " suggests " (move-san (game-pos g) (List ref 4 r)) "  (" (%report-text r) ")\n")))
+               (%think io st))
               (%say io "The game is over.\n"))
             #t))
       ((str=? cmd "go")
@@ -220,15 +260,18 @@
            (#t 0))))
 
 ; Play over IO.  OPTS is an alist: fen, side (white black both), ms,
-; depth.  FIRST, when not (), is a line already read.  Answers the exit
-; status.
+; depth, engine (a player, x-chess's own when absent) and think (#t to
+; show the engine's thinking).  FIRST, when not (), is a line already
+; read.  Answers the exit status; the engine played last is let go.
 (def play-run
   (fn (_ io opts first-line)
     (def opt (fn (_ k d) ((fn (_ p) (if (null? p) d (rest p))) (Assoc find k opts))))
-    (def st (Vector make 6 ()))
+    (def st (Vector make 8 ()))
     (%put! st %s-game (game-new (opt (lit fen) ())))
     (%put! st %s-ms (opt (lit ms) 5000))
     (%put! st %s-depth (opt (lit depth) 64))
+    (%put! st %s-engine (opt (lit engine) (player-builtin)))
+    (%put! st %s-think (opt (lit think) #f))
     (%play-as! st (opt (lit side) (lit white)))
     (when (null? first-line)
       (%say io (Str8 append "x-chess " chess-version ": you play " (match ((eq? (%get st %s-human) (lit black)) "black") ((eq? (%get st %s-human) (lit both)) "both sides") (#t "white"))
@@ -237,6 +280,8 @@
       (fn (self line)
         (def status (%turn io st line))
         (if (null? status) (self ()) status)))
-    (go first-line)))
+    (def status (go first-line))
+    (player-quit! (%get st %s-engine))
+    status))
 
 (provide chess/play play-run)

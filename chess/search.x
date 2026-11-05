@@ -183,6 +183,43 @@
       ((int< score beta) (%quiesce-moves p (rest ms) (match ((int< alpha score) score) (#t alpha)) beta ply check hope))
       (#t beta))))
 
+; --- the principal variation ---------------------------------------------------------------
+;
+; A triangle of lines: ply K's line holds 128 slots from K*128, its
+; length in %pv-len.  A move that raises alpha at ply K makes K's line
+; that move then the line its search left at K+1.  Plies past 125 keep
+; no line.
+
+(def %pv (Vector make 16384 0))
+(def %pv-len (Vector make 128 0))
+
+(def %pv-clear! (fn (_ ply) (match ((int< ply 127) (obj-set! %pv-len (int+ ply 1) 0)) (#t ()))))
+
+(def %pv-raise!
+  (fn (_ ply m)
+    (match ((int< ply 126) (%pv-set-line! ply m (obj-ref %pv-len (int+ ply 2))))
+           (#t ()))))
+
+(def %pv-set-line!
+  (fn (_ ply m n)
+    (obj-set! %pv (int+ (int* ply 128) 1) m)
+    (%pv-copy! (int* ply 128) (int* (int+ ply 1) 128) 0 n)
+    (obj-set! %pv-len (int+ ply 1) (int+ n 1))))
+
+; The child's moves from I on, after the move at TO.
+(def %pv-copy!
+  (fn (self to from i n)
+    (match
+      ((int< i n)
+        (do (obj-set! %pv (int+ to (int+ i 2)) (obj-ref %pv (int+ from (int+ i 1))))
+            (self to from (int+ i 1) n)))
+      (#t ()))))
+
+; The root's line, a list of moves.
+(def %pv-root
+  (fn (_)
+    (List map (fn (_ i) (obj-ref %pv (int+ i 1))) (List range 0 (obj-ref %pv-len 1)))))
+
 ; --- alpha-beta ----------------------------------------------------------------------------
 ;
 ; The score of P searched DEPTH plies, within ALPHA and BETA; PLY is how
@@ -192,6 +229,7 @@
 
 (def %search
   (fn (_ p depth alpha beta ply)
+    (%pv-clear! ply)
     (match
       ((int= ply 0) (%search-node p depth alpha beta ply))
       ((int< 99 (pos-half p)) 0)
@@ -236,6 +274,7 @@
 ; The first of MS raised alpha to SCORE: at the root it is the best move.
 (def %search-raised
   (fn (_ p ms depth score beta ply check legal)
+    (%pv-raise! ply (first ms))
     (match ((int= ply 0) (%root-best! (first ms) score)) (#t ()))
     (%search-moves p (rest ms) depth score beta ply check (int+ legal 1))))
 
@@ -251,7 +290,8 @@
 ; Search P for at most DEPTH plies, MS milliseconds of processor time and
 ; NODES nodes (0 for no limit on either), POLL answering true to stop.
 ; Each finished depth is handed to INFO as (depth score nodes
-; microseconds move).  Answers that last report, or () when P has no
+; microseconds move line), LINE the moves the search expects from move
+; on.  Answers that last report, or () when P has no
 ; legal move.  Stopped before any root move is finished, it answers the
 ; first legal move, scored 0: a move in time is worth more than none.
 (def search
@@ -286,7 +326,7 @@
     (def got
       (guard (e (match ((eq? (Err label e) (lit chess-stop)) (lit stopped)) (#t (error e))))
         (%search q d (int- 0 %infinity) %infinity 0)))
-    (def report (list d (obj-ref %best 2) (obj-ref %state 1) (int- (Sys clock) t0) (obj-ref %best 1)))
+    (def report (list d (obj-ref %best 2) (obj-ref %state 1) (int- (Sys clock) t0) (obj-ref %best 1) (%pv-root)))
     (match
       ((eq? got (lit stopped)) (Err raise (lit chess-done) "" (%stopped-report report fallback last)))
       (#t (%report info report)))))
@@ -295,7 +335,7 @@
   (fn (_ report fallback last)
     (match
       ((not (int= (obj-ref %best 1) 0)) (pair (match ((null? last) (first report)) (#t (first last))) (rest report)))
-      ((null? last) (list (first report) 0 (List ref 2 report) (List ref 3 report) fallback))
+      ((null? last) (list (first report) 0 (List ref 2 report) (List ref 3 report) fallback (list fallback)))
       (#t last))))
 (def %report (fn (_ info report) (info report) report))
 
