@@ -28,7 +28,7 @@
   tui-puzzles!)
 (import chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
-  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines)
+  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count)
 (import chess/record record-path record-load record-add! record-solved? record-unsolved record-score)
 (import chess/app app-run)
 (import chess/show show-board)
@@ -57,7 +57,7 @@
   tui-puzzles!
   puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
-  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines
+  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count
   record-path record-load record-add! record-solved? record-unsolved record-score
   app-run
   show-board chess-version uci-run uci-think-ms play-run chess-main chess-options

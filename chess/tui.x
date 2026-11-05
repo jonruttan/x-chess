@@ -34,7 +34,7 @@
 (import chess/san move-san moves-san move-parse)
 (import chess/player player-builtin player-start player-name player-quit!)
 (import chess/puzzle puzzle-fen puzzle-title puzzle-rating puzzle-solution puzzle-judge puzzle-set
-  puzzle-list-source puzzle-file-source puzzle-filter puzzle-range puzzle-library)
+  puzzle-list-source puzzle-file-source puzzle-filter puzzle-range puzzle-library puzzle-counts puzzle-count)
 (import chess/record record-path record-load record-add! record-unsolved record-score)
 
 (def %game 0)
@@ -69,7 +69,8 @@
 (def %band 29)        ; the rating band the choice picks from, an index of %bands
 (def %record 30)      ; the puzzles finished, read at first need: see chess/record
 (def %record-path 31) ; the file they are kept in
-(def %slots 32)
+(def %counts-read 32) ; (the library's counts, or ()) once read: see %library-counts
+(def %slots 33)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -1033,18 +1034,31 @@
         (when (%get st %help) (%draw-help! screen))
         (when (%get st %choose) (%draw-choice! st screen))))))
 
-; The choice of puzzles z shows, in the band chosen, with how many of
-; each you have solved of those you finished there.
+; How many of the library's puzzles have each theme in each band, read
+; the first time the choice is shown: see puzzle-counts.
+(def %library-counts
+  (fn (_ st)
+    (when (null? (%get st %counts-read))
+      (%put! st %counts-read ((fn (_ lib) (pair (if (null? lib) () (puzzle-counts lib)) ())) (puzzle-library))))
+    (first (%get st %counts-read))))
+
+; The choice of puzzles z shows, in the band chosen: how many there are
+; of each, and how many of each you have solved of those you finished.
 (def %draw-choice!
   (fn (_ st screen)
     (def b (List ref (%get st %band) %bands))
+    (def counts (%library-counts st))
+    (def count
+      (fn (_ c)
+        ((fn (_ n) (Str8 pad-left 4 #\space (if (null? n) "" (io-display-to-str n))))
+         (puzzle-count counts (List ref 1 c) (List ref 1 b) (List ref 2 b)))))
     (def score
       (fn (_ c)
         ((fn (_ s) (if (= 0 (rest s)) "" (Str8 append (io-display-to-str (first s)) " of " (io-display-to-str (rest s)) " solved")))
          (record-score (%record-of st) (List ref 1 c) (List ref 1 b) (List ref 2 b)))))
     (def lines
       (List append (list (Str8 append "Puzzles, " (first b)) "")
-        (List map (fn (_ c) (Str8 append (first c) "   " (Str8 pad-right 22 #\space (List ref 2 c)) (score c))) %choices)
+        (List map (fn (_ c) (Str8 append (first c) "   " (Str8 pad-right 20 #\space (List ref 2 c)) (count c) "   " (score c))) %choices)
         (list "x   x-chess's own, unrated" "" "< >  another rating · any other key: back to the game")))
     (%draw-box! screen 58 lines)))
 

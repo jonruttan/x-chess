@@ -81,10 +81,11 @@ names, `--theme mateIn4`, `mate` (any mate), `fork`, `pin`, `crushing`,
 `-1800` for one bound).  `:puzzle THEME` and `:puzzles FILE THEME
 LOW-HIGH` do the same on the board.
 
-    sh tools/puzzle-library.sh lichess_db_puzzle.csv.zst > chess/puzzles.csv
+    sh tools/puzzle-library.sh lichess_db_puzzle.csv.zst chess/puzzles.csv
 
 cuts the shipped set again from a newer database; `PER` sets how many
-of each theme and band.
+of each theme and band.  It writes beside it `chess/puzzles.counts`,
+how many puzzles have each theme in each band, which the choice shows.
 
 You play the side to move.  A right move is answered with the
 solution's reply, and any move that mates solves the puzzle.  In a

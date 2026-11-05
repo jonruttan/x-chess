@@ -1,9 +1,10 @@
 #!/bin/sh
-# puzzle-library.sh DATABASE > chess/puzzles.csv
+# puzzle-library.sh DATABASE CSV
 #
 # Cuts the puzzles x-chess ships from the lichess puzzle database
 # (https://database.lichess.org/#puzzles, CC0), DATABASE its .csv or
-# .csv.zst.  Each puzzle is filed under the first of these themes it has:
+# .csv.zst, into CSV (chess/puzzles.csv).  Each puzzle is filed under the
+# first of these themes it has:
 #
 #   mateIn5 mateIn4 mateIn3 mateIn2 mateIn1 fork pin skewer
 #   discoveredAttack trappedPiece hangingPiece endgame
@@ -14,11 +15,20 @@
 # played often (NbPlays 1000 or more) and rated surely (RatingDeviation
 # 90 or less) are kept.  They are written in the database's form, header
 # first, easiest first, with no game link or opening tags.
+#
+# Beside CSV, its .counts (chess/puzzles.counts) gives how many of the
+# puzzles have each theme in each band, a line each:
+#
+#   THEME LOW HIGH COUNT
+#
+# THEME * for any theme, LOW and HIGH the band's ratings (0 for no
+# bound: 0 0 is any rating).  The choice of puzzles shows them.
 
 PER=${PER:-40}
 db=$1
-if [ -z "$db" ] || [ ! -r "$db" ]; then
-	echo "usage: puzzle-library.sh DATABASE > chess/puzzles.csv" >&2
+csv=$2
+if [ -z "$db" ] || [ ! -r "$db" ] || [ -z "$csv" ]; then
+	echo "usage: puzzle-library.sh DATABASE CSV" >&2
 	exit 2
 fi
 case $db in
@@ -28,26 +38,40 @@ esac
 
 tab=$(printf '\t')
 
-echo "PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags"
-read_db | awk -F, '
-	BEGIN {
-		n = split("mateIn5 mateIn4 mateIn3 mateIn2 mateIn1 fork pin skewer discoveredAttack trappedPiece hangingPiece endgame", order, " ")
-	}
+{
+	echo "PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags"
+	read_db | awk -F, '
+		BEGIN {
+			n = split("mateIn5 mateIn4 mateIn3 mateIn2 mateIn1 fork pin skewer discoveredAttack trappedPiece hangingPiece endgame", order, " ")
+		}
+		NR == 1 { next }
+		$6 < 90 || $7 < 1000 || $5 > 90 { next }
+		{
+			split($8, ts, " ")
+			for (t in has) delete has[t]
+			for (i in ts) has[ts[i]] = 1
+			theme = 0
+			for (i = 1; i <= n; i++) if (order[i] in has) { theme = i; break }
+			if (theme == 0) next
+			r = $4 + 0
+			band = r < 1000 ? 1 : r < 1400 ? 2 : r < 1800 ? 3 : r < 2200 ? 4 : 5
+			# theme, band, plays, rating, then the row: tabs, since a FEN has spaces
+			printf "%d\t%d\t%d\t%d\t%s,%s,%s,%s,%s,%s,%s,%s,,\n", theme, band, $7, r, $1, $2, $3, $4, $5, $6, $7, $8
+		}' |
+		sort -t "$tab" -k1,1n -k2,2n -k3,3nr |
+		awk -F '\t' -v per="$PER" '++taken[$1 " " $2] <= per { print $4 "\t" $5 }' |
+		sort -t "$tab" -k1,1n -s |
+		cut -f 2-
+} > "$csv" || exit 1
+
+awk -F, '
 	NR == 1 { next }
-	$6 < 90 || $7 < 1000 || $5 > 90 { next }
 	{
-		split($8, ts, " ")
-		for (t in has) delete has[t]
-		for (i in ts) has[ts[i]] = 1
-		theme = 0
-		for (i = 1; i <= n; i++) if (order[i] in has) { theme = i; break }
-		if (theme == 0) next
 		r = $4 + 0
-		band = r < 1000 ? 1 : r < 1400 ? 2 : r < 1800 ? 3 : r < 2200 ? 4 : 5
-		# theme, band, plays, rating, then the row: tabs, since a FEN has spaces
-		printf "%d\t%d\t%d\t%d\t%s,%s,%s,%s,%s,%s,%s,%s,,\n", theme, band, $7, r, $1, $2, $3, $4, $5, $6, $7, $8
-	}' |
-	sort -t "$tab" -k1,1n -k2,2n -k3,3nr |
-	awk -F '\t' -v per="$PER" '++taken[$1 " " $2] <= per { print $4 "\t" $5 }' |
-	sort -t "$tab" -k1,1n -s |
-	cut -f 2-
+		band = r < 1000 ? "0 999" : r < 1400 ? "1000 1399" : r < 1800 ? "1400 1799" : r < 2200 ? "1800 2199" : "2200 0"
+		n = split($8, ts, " ")
+		count["* " band]++
+		count["* 0 0"]++
+		for (i = 1; i <= n; i++) { count[ts[i] " " band]++; count[ts[i] " 0 0"]++ }
+	}
+	END { for (k in count) print k, count[k] }' "$csv" | LC_ALL=C sort > "${csv%.csv}.counts"
