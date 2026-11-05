@@ -59,7 +59,7 @@ tests/puzzles.csv holds lines in the lichess database's form.
 
 ## judging a move
 
-### the solution's move, another that mates, a wrong move, a move on the way, and one that mates later
+### the solution's move, another that mates, a wrong move, a move on the way, and another way on
 
 ```chess
 (def zs (puzzle-set))
@@ -73,7 +73,17 @@ tests/puzzles.csv holds lines in the lichess database's form.
              (judge "The ladder" "Ra7") (judge "The ladder" "Rb8") (judge "The ladder" "Rb7")))
 ```
 ---
-    ('solved 'solved 'wrong 'right 'wrong 'wrong)
+    ('solved 'solved 'wrong 'right 'wrong 'right)
+
+### another way on to the mate is answered with the longest defence
+
+```chess
+(def z (List find (fn (_ z) (Str8 includes? "The ladder" (puzzle-title z))) (puzzle-set)))
+(def p (pos-from-fen (puzzle-fen z)))
+(write (puzzle-judge z p (move-parse p "Rb7") (puzzle-solution z)))
+```
+---
+    ('right "h8g8" "a2a8")
 
 ## the library
 

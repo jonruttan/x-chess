@@ -87,8 +87,11 @@ cuts the shipped set again from a newer database; `PER` sets how many
 of each theme and band.
 
 You play the side to move.  A right move is answered with the
-solution's reply, and any move that mates solves the puzzle, as on
-lichess.  In a puzzle, `i` marks the solution's next move, `m` makes it
+solution's reply, and any move that mates solves the puzzle.  In a
+mate, another move that still forces mate in the moves left is right
+too, answered with the defence that holds out longest: a mate search
+of its own finds it, trying the attacker's checks, in a few seconds
+for a mate in four.  In a puzzle, `i` marks the solution's next move, `m` makes it
 for you, `z` goes on to the next puzzle and `n` leaves the puzzles for
 a new game.  A puzzle counts as solved when it was solved with no wrong
 move, hint or move shown.
