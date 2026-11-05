@@ -1,0 +1,13 @@
+; lang.xon -- what this bundle is.
+
+(lang "chess")
+
+; Self-contained: this bundle depends on nothing but the platform.
+;
+; Helium, plus exactly the libraries this bundle imports and nothing
+; ambient: the terminal and the clock, none of the tower.
+(dialect he)
+
+(requires-release "v0.45.0")
+
+(entry "run.x")
