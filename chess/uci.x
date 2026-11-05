@@ -7,10 +7,10 @@
 ; @license MIT No Attribution (MIT-0)
 ;
 ; What a chess GUI or another engine speaks to an engine, a line at a
-; time: uci, isready, ucinewgame, position, go, stop and quit, and two
-; that are not the protocol's but every engine has, d to show the board
-; and go perft N to count move paths.  While it thinks the engine reads
-; stop, quit and isready between nodes.
+; time: uci, isready, setoption, ucinewgame, position, go, stop and
+; quit, and two that are not the protocol's but every engine has, d to
+; show the board and go perft N to count move paths.  While it thinks
+; the engine reads stop, quit and isready between nodes.
 ;
 ; IO is (read say ready?): read answers the next line or () at the end
 ; of input, say writes text, ready? answers whether a line is waiting.
@@ -18,11 +18,13 @@
 (module chess/uci)
 
 (import chess/board pos-side legal-moves move-uci move-parse-uci gen-moves make! unmake! perft parse-int)
-(import chess/search search-best mate-score? mate-in)
+(import chess/search best-move mate-score? mate-in)
+(import chess/book book-current)
+(import chess/tables tables-allow-build!)
 (import chess/game game-new game-pos game-play! game-fen)
 (import chess/show show-board)
 (import x/sys/gc)
-(import x/core/doors io-display-to-str int/ int% int*)
+(import x/core/doors io-display-to-str int/ int% int* int=)
 
 (def chess-version "0.1.0")
 
@@ -128,8 +130,46 @@
         (def nodes (%after words "nodes" 0))
         (def ms (if (List any? (fn (_ w) (str=? w "infinite")) words) 0 (uci-think-ms words (pos-side p))))
         (def r (if (null? (legal-moves p)) ()
-                 (search-best p depth ms nodes (%poll io) (fn (_ r) (%io-say io (%info-line r))))))
+                 (best-move p (%book) depth ms nodes (%poll io) (fn (_ r) (%io-say io (%info-line r))))))
+        (match ((null? r) ())
+               ((int= (first r) 0) (%io-say io "info string book move\n"))
+               ((int= (List ref 2 r) 0) (%io-say io (%info-line r)))
+               (#t ()))
         (%io-say io (Str8 append "bestmove " (if (null? r) "0000" (move-uci (List ref 4 r))) "\n"))))))
+
+; --- options ---------------------------------------------------------------------
+;
+; OwnBook plays from a book before searching, BookFile names a Polyglot
+; book for it (empty for the built-in one).  Both start from the
+; command line's --book: a file given there is the BookFile, and turns
+; OwnBook on.
+
+(def %own-book #f)
+(def %book-file "")
+
+(def %book
+  (fn (_)
+    (match ((not %own-book) ())
+           ((str=? %book-file "") (lit builtin))
+           (#t %book-file))))
+
+(def %options
+  (fn (_)
+    (Str8 append "option name OwnBook type check default " (if %own-book "true" "false") "\n"
+      "option name BookFile type string default " (if (str=? %book-file "") "<empty>" %book-file) "\n")))
+
+; setoption name NAME value VALUE, the words past setoption.
+(def %setoption!
+  (fn (_ io words)
+    (def upto (fn (self ws stop) (if (null? ws) () (if (str=? (first ws) stop) () (pair (first ws) (self (rest ws) stop))))))
+    (def from (fn (self ws key) (if (null? ws) () (if (str=? (first ws) key) (rest ws) (self (rest ws) key)))))
+    (def name (Str8 downcase (Str8 join " " (upto (from words "name") "value"))))
+    (def value (Str8 join " " (from words "value")))
+    (match
+      ((str=? name "ownbook") (set! %own-book (str=? (Str8 downcase value) "true")))
+      ((str=? name "bookfile")
+        (set! %book-file (if (if (str=? value "<empty>") #t (str=? value "")) "" value)))
+      (#t (%io-say io (Str8 append "info string x-chess: no such option: " name "\n"))))))
 
 ; go perft N: each legal move's count, then the total.
 (def %perft
@@ -152,8 +192,9 @@
     (def cmd (if (null? words) "" (first words)))
     (match
       ((str=? cmd "uci")
-        (do (%io-say io (Str8 append "id name x-chess " chess-version "\nid author Jon Ruttan\nuciok\n")) g))
+        (do (%io-say io (Str8 append "id name x-chess " chess-version "\nid author Jon Ruttan\n" (%options) "uciok\n")) g))
       ((str=? cmd "isready") (do (%io-say io "readyok\n") g))
+      ((str=? cmd "setoption") (do (%setoption! io (rest words)) g))
       ((str=? cmd "ucinewgame") (game-new ()))
       ((str=? cmd "position")
         ((fn (_ ng) (if (null? ng) (do (%io-say io (Str8 append "info string x-chess: cannot set up: " line "\n")) g) ng))
@@ -169,6 +210,10 @@
   (fn (_ io first-line)
     (set! %pending ())
     (set! %quit #f)
+    ; a search with a clock running never stops to build the endgame tables
+    (tables-allow-build! #f)
+    (set! %own-book (str? (book-current)))
+    (set! %book-file (if (str? (book-current)) (book-current) ""))
     (def next-line
       (fn (_)
         (if (null? %pending) (%io-read io)

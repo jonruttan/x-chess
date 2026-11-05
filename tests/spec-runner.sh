@@ -85,10 +85,9 @@ export SPEC_SEAM_COLLECT=0
 # x-cc, x-infocom, x-r5rs and x-r7rs set the same knob.
 export SPEC_BATCH="${SPEC_BATCH:-1}"
 
-# A spec file's time limit.  02-compiled builds the compiled screen with an
-# empty cache, proves it, and feeds exercises through both engines: 26 s
-# on an M-series Mac, past the platform's 60 on a hosted Linux runner.
-# x-python sets the same knob.
-export TIMEOUT_UNIT_SECS="${TIMEOUT_UNIT_SECS:-180}"
+# A spec file's time limit.  13-tables builds the three endgame tables,
+# about 190 s of processor time on an M-series Mac and more on a hosted
+# Linux runner.  x-python sets the same knob.
+export TIMEOUT_UNIT_SECS="${TIMEOUT_UNIT_SECS:-900}"
 
 . "$X_ROOT/tests/spec-runner.sh"

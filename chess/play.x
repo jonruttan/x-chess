@@ -105,10 +105,11 @@
 
 (def %report-text
   (fn (_ r)
-    (Str8 append "depth " (io-display-to-str (List ref 0 r)) ", " (%score-text (List ref 1 r)) ", "
-      (io-display-to-str (List ref 2 r)) " nodes, "
-      (io-display-to-str (int/ (List ref 3 r) 1000000)) "."
-      (io-display-to-str (int/ (int% (List ref 3 r) 1000000) 100000)) " s")))
+    (if (= (List ref 0 r) 0) "from the book"
+      (Str8 append "depth " (io-display-to-str (List ref 0 r)) ", " (%score-text (List ref 1 r)) ", "
+        (io-display-to-str (List ref 2 r)) " nodes, "
+        (io-display-to-str (int/ (List ref 3 r) 1000000)) "."
+        (io-display-to-str (int/ (int% (List ref 3 r) 1000000) 100000)) " s"))))
 
 ; The engine plays the side to move.
 (def %engine-move!
