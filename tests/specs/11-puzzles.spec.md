@@ -275,10 +275,10 @@ Hint: Ra8#
 3                       h   Pieces left hanging  216
                         e   Endgames             977
                         a   All of them         2342
-2    ♙      ♙      ♙    x   x-chess's own, unrated
+2    ♟      ♟      ♟    x   x-chess's own, unrated
                         l   lichess's puzzle of the day
 
-1    ♖      ♘      ♗    < >  another rating · any other key: back to the game
+1    ♜      ♞      ♝    < >  another rating · any other key: back to the game
 
 
 7    ♟      ♟      ♟    Puzzles, rated 1000 to 1399

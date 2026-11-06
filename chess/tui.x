@@ -73,7 +73,8 @@
 (def %counts-read 32) ; (the library's counts, or ()) once read: see %library-counts
 (def %pending 33)     ; work to do once the screen is drawn: a function of the state, or ()
 (def %daily 34)       ; (path . fetch) for the puzzle of the day: see chess/daily
-(def %slots 35)
+(def %theme 35)       ; how the board is drawn: one of %themes
+(def %slots 36)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -110,6 +111,7 @@
     (%put! st %band 0)
     (%put! st %record-path (opt (lit record) (record-path)))
     (%put! st %daily (opt (lit daily) (pair (daily-path) daily-fetch)))
+    (%put! st %theme ((fn (_ t) (if (null? t) (first %themes) t)) (tui-theme (opt (lit board) ""))))
     (unless (null? (opt (lit puzzles) ())) (tui-puzzles! st (opt (lit puzzles) ())))
     st))
 
@@ -698,6 +700,7 @@
                 (%put! st %engine pl)
                 (%put! st %msg (Str8 append "The engine is " (player-name pl) "."))))))
       ((str=? cmd "coach") (%coach! st))
+      ((str=? cmd "board") (%board! st arg))
       ((str=? cmd "puzzle")
         (match ((str=? arg "") (%put! st %choose #t)) ((str=? arg "daily") (%ask-daily! st)) (#t (%start-chosen! st arg))))
       ((str=? cmd "puzzles")
@@ -714,16 +717,53 @@
 
 ; --- drawing -----------------------------------------------------------------------
 ;
-; Colours are the 256-colour palette's: the squares a warm brown and
-; cream, the last move's squares yellowed, the piece picked up green,
-; the arrows' square blue, a king in check red.
+; A theme is how the board is drawn: a row of %themes, (NAME FIGURES
+; COLOURS), the colours the 256-colour palette's.  FIGURES says what a
+; piece is drawn as: figures, each side the solid one in its own colour,
+; or ascii, letters (white's in upper case) and no colour at all, the
+; marks made with characters and reverse video.  COLOURS are the
+; squares' backgrounds, light then dark, plain, of the last move, of the
+; piece picked up, of the arrows' square and of a hint; a king in check's;
+; white's and black's pieces; the dots on the squares a piece picked up
+; can go to, and on the pieces it can take; and the bar's two sides.
+; The pieces are bold in every theme.
 
-(def %light 223) (def %dark 137)
-(def %light-last 229) (def %dark-last 143)
-(def %light-sel 114) (def %dark-sel 71)
-(def %light-cur 117) (def %dark-cur 74)
-(def %light-hint 159) (def %dark-hint 73)
-(def %check-bg 203)
+(def %themes
+  (list (list "wood" (lit figures) (list 180 137 186 143 114 71 117 74 116 73 203 231 16 65 160 253 238))
+        (list "green" (lit figures) (list 108 65 186 143 179 136 110 67 116 73 167 231 16 22 160 253 238))
+        (list "blue" (lit figures) (list 110 67 186 143 114 71 146 103 180 137 203 231 16 24 160 253 238))
+        (list "grey" (lit figures) (list 248 242 186 143 114 71 117 74 116 73 203 231 16 236 160 253 238))
+        (list "ascii" (lit ascii) (List repeat 17 ()))))
+
+; The theme named NAME, or ().
+(def tui-theme (fn (_ name) (List find (fn (_ t) (str=? (first t) name)) %themes)))
+(def tui-theme-names (fn (_) (List map first %themes)))
+
+(def %ascii? (fn (_ st) (eq? (List ref 1 (%get st %theme)) (lit ascii))))
+
+; Colour I of the theme: 0 the light squares, as %themes lists them.
+(def %colour (fn (_ st i) (List ref i (List ref 2 (%get st %theme)))))
+
+; TEXT as the theme draws it: in ascii the separators and the typing
+; cursor are ASCII too.
+(def %plain
+  (fn (_ st text)
+    (if (%ascii? st) (Str8 replace "▏" "_" (Str8 replace "·" "|" text)) text)))
+
+; :board NAME, or the next theme when NAME is empty.
+(def %board!
+  (fn (_ st name)
+    (def names (tui-theme-names))
+    (def next
+      (fn (self l)
+        (match ((null? l) (first names))
+               ((str=? (first l) (first (%get st %theme))) (if (null? (rest l)) (first names) (first (rest l))))
+               (#t (self (rest l))))))
+    (def t (tui-theme (if (str=? name "") (next names) name)))
+    (if (null? t)
+      (%put! st %msg (Str8 append "No such board: " name ".  They are " (Str8 join ", " names) "."))
+      (do (%put! st %theme t)
+          (%put! st %msg (Str8 append "The " (first t) " board."))))))
 
 ; Square sizes: rows and columns a square takes, by the room there is.
 (def %layout
@@ -751,22 +791,24 @@
 (def %sq-of
   (fn (_ st r c) (if (= (%get st %view) 0) (sq-make c (- 7 r)) (sq-make (- 7 c) r))))
 
-(def %figures-white (list "" "♙" "♘" "♗" "♖" "♕" "♔"))
 (def %figures-black (list "" "♟" "♞" "♝" "♜" "♛" "♚"))
 (def %letters-list (list "" "P" "N" "B" "R" "Q" "K"))
 
+; Piece PC as text: in ascii black's letters are in lower case; with
+; letters asked for, both sides' in upper case and told apart by colour.
 (def %piece-text
   (fn (_ st pc)
     (def k (piece-kind pc))
-    (match ((%get st %letters) (List ref k %letters-list))
-           ((= (piece-colour pc) 0) (List ref k %figures-white))
+    (match ((%ascii? st) (if (= (piece-colour pc) 0) (List ref k %letters-list) (Str8 downcase (List ref k %letters-list))))
+           ((%get st %letters) (List ref k %letters-list))
            (#t (List ref k %figures-black)))))
 
+; Piece PC on a square drawn in SQ-STYLE: bold, in its side's colour,
+; reversed with the square.
 (def %piece-style
-  (fn (_ st pc bg)
-    (if (%get st %letters)
-      (Style make (list (lit bold)) (if (= (piece-colour pc) 0) 231 16) bg)
-      (Style make () 16 bg))))
+  (fn (_ st pc sq-style)
+    (Style make (if (Style has? sq-style (lit reverse)) (list (lit bold) (lit reverse)) (list (lit bold)))
+      (%colour st (if (= (piece-colour pc) 0) 11 12)) (Style bg sq-style))))
 
 ; The position shown: the game's, or the one looked back at.
 (def %shown
@@ -779,18 +821,36 @@
           (List for-each (fn (_ m) (make! p m)) ms)
           (pair p (if (null? ms) 0 (List last ms)))))))
 
-(def %bg
-  (fn (_ st p sq last targets)
-    (def light (= (int% (+ (sq-file sq) (sq-rank sq)) 2) 1))
+; What marks square SQ of P: check, sel, cur, hint, last or plain.
+(def %mark
+  (fn (_ st p sq last)
     (def pc (pos-piece p sq))
     (def hint (%get st %hint))
     (match
-      ((if (= (piece-kind pc) KING) (if (= (piece-colour pc) (pos-side p)) (in-check? p) #f) #f) %check-bg)
-      ((= sq (%get st %sel)) (if light %light-sel %dark-sel))
-      ((if (%get st %cursor-on) (= sq (%get st %cursor)) #f) (if light %light-cur %dark-cur))
-      ((if (< 0 hint) (if (= sq (move-from hint)) #t (= sq (move-to hint))) #f) (if light %light-hint %dark-hint))
-      ((if (< 0 last) (if (= sq (move-from last)) #t (= sq (move-to last))) #f) (if light %light-last %dark-last))
-      (#t (if light %light %dark)))))
+      ((if (= (piece-kind pc) KING) (if (= (piece-colour pc) (pos-side p)) (in-check? p) #f) #f) (lit check))
+      ((= sq (%get st %sel)) (lit sel))
+      ((if (%get st %cursor-on) (= sq (%get st %cursor)) #f) (lit cur))
+      ((if (< 0 hint) (if (= sq (move-from hint)) #t (= sq (move-to hint))) #f) (lit hint))
+      ((if (< 0 last) (if (= sq (move-from last)) #t (= sq (move-to last))) #f) (lit last))
+      (#t (lit plain)))))
+
+(def %mark-colours (list (pair (lit plain) 0) (pair (lit last) 2) (pair (lit sel) 4) (pair (lit cur) 6) (pair (lit hint) 8)))
+
+; Square SQ of P as (FILL . STYLE): the character it is filled with and
+; its style.  In ascii a dark square is dotted, the last move's squares
+; dashed, a hint's waved, and the others marked reversed.
+(def %square
+  (fn (_ st p sq last)
+    (def light (= (int% (+ (sq-file sq) (sq-rank sq)) 2) 1))
+    (def mark (%mark st p sq last))
+    (if (%ascii? st)
+      (match ((eq? mark (lit last)) (pair "-" 0))
+             ((eq? mark (lit hint)) (pair "~" 0))
+             ((eq? mark (lit plain)) (if light (pair " " 0) (pair "." (Style make (list (lit dim)) () ()))))
+             (#t (pair (if light " " ".") (Style make (list (lit reverse)) () ()))))
+      (pair " " (Style make () ()
+                  (if (eq? mark (lit check)) (%colour st 10)
+                    (%colour st (+ (rest (Assoc find mark %mark-colours)) (if light 0 1)))))))))
 
 (def %draw-board!
   (fn (_ st screen)
@@ -805,19 +865,25 @@
         (def r (int/ i 8))
         (def c (int% i 8))
         (def sq (%sq-of st r c))
-        (def bg (%bg st p sq last targets))
+        (def square (%square st p sq last))
+        (def fill (Str8 repeat w (first square)))
+        (def sq-style (rest square))
         (def y (+ %top (* r h)))
         (def x (+ %left (* c w)))
-        (List for-each (fn (_ k) (Screen fill screen (+ y k) x w (Style make () () bg))) (List range 0 h))
+        (List for-each (fn (_ k) (Screen put screen (+ y k) x fill sq-style)) (List range 0 h))
         (def pc (pos-piece p sq))
         (def cy (+ y (int/ h 2)))
         (def cx (+ x (int/ w 2)))
+        ; the mark on a square the piece picked up can go to: I the colour
+        (def dot
+          (fn (_ col ascii i)
+            (Screen put screen cy col (if (%ascii? st) ascii (if (= i 13) "•" "·"))
+              (Style make (if (Style has? sq-style (lit reverse)) (list (lit reverse)) ()) (%colour st i) (Style bg sq-style)))))
         (match
-          ((< 0 pc) (Screen put screen cy cx (%piece-text st pc) (%piece-style st pc bg)))
-          ((List includes? sq targets) (Screen put screen cy cx "•" (Style make () 65 bg)))
+          ((< 0 pc) (Screen put screen cy cx (%piece-text st pc) (%piece-style st pc sq-style)))
+          ((List includes? sq targets) (dot cx "*" 13))
           (#t ()))
-        (when (if (< 0 pc) (List includes? sq targets) #f)
-          (Screen put screen cy (- cx 1) "·" (Style make () 160 bg))))
+        (when (if (< 0 pc) (List includes? sq targets) #f) (dot (- cx 1) "x" 14)))
       (List range 0 64))
     ; ranks down the left, files along the bottom
     (List for-each
@@ -848,7 +914,9 @@
       (fn (_ k)
         ; K counts from the bottom
         (def white (if (= (%get st %view) 0) (< k white-cells) (< (- h 1 k) white-cells)))
-        (Screen put screen (- (+ %top h) 1 k) x " " (Style make () () (if white 253 238))))
+        (Screen put screen (- (+ %top h) 1 k) x
+          (if (if (%ascii? st) (not white) #f) ":" " ")
+          (Style make (if (if (%ascii? st) white #f) (list (lit reverse)) ()) () (%colour st (if white 15 16)))))
       (List range 0 h))))
 
 ; --- the panel ---------------------------------------------------------------------
@@ -887,7 +955,8 @@
       (if (if (eq? (%get st %human) (lit both)) #t
             (if (eq? (%get st %human) (lit white)) (= side 0) (= side 8)))
         "You" (player-name (%get st %engine))))
-    (def x (Screen put screen row %left (if (= side 0) " ○ " " ● ")
+    (def x (Screen put screen row %left
+             (match ((%ascii? st) (if (= side 0) " W " " B ")) ((= side 0) " ○ ") (#t " ● "))
              (Style make (if to-move (list (lit bold) (lit reverse)) ()) () ())))
     (def x2 (Screen put screen row (+ x 1) (Str8 append who " (" (%side-name side) ")")
               (Style make (if to-move (list (lit bold)) ()) () ())))
@@ -969,10 +1038,10 @@
     (def x (%panel-x st))
     (def rows (Screen rows screen))
     (def bottom (- rows 3))
-    (Screen put screen 0 x (%panel-title st) (Style make (list (lit bold)) () ()))
+    (Screen put screen 0 x (%plain st (%panel-title st)) (Style make (list (lit bold)) () ()))
     (def think-rows (if (%get st %show-think) (%min 6 (%max 2 (int/ (- bottom 2) 3))) 0))
     (when (%get st %show-think)
-      (%heading! screen 2 x "Thinking" (%get st %stats))
+      (%heading! screen 2 x "Thinking" (%plain st (%get st %stats)))
       (List for-each
         (fn (_ i) (Screen put screen (+ 3 i) x (List ref i (%get st %thinking))
                     (Style make (if (= i 0) () (list (lit dim))) () ())))
@@ -1012,21 +1081,21 @@
         ":fen FEN   :time S   :depth N   :engine CMD"
         ":save FILE   :white   :black   :both   :new"
         ":puzzle [THEME]   :puzzles FILE [THEME] [LOW-HIGH]"
-        ":coach"
+        ":coach   :board [wood|green|blue|grey|ascii]"
         ""
         "Any key closes this."))
 
-(def %draw-help! (fn (_ screen) (%draw-box! screen 62 %help-lines)))
+(def %draw-help! (fn (_ st screen) (%draw-box! st screen 62 %help-lines)))
 
 ; LINES in a box W wide in the middle of the screen.
 (def %draw-box!
-  (fn (_ screen w lines)
+  (fn (_ st screen w lines)
     (def h (+ 2 (List length lines)))
     (def y (%max 0 (int/ (- (Screen rows screen) h) 2)))
     (def x (%max 0 (int/ (- (Screen cols screen) w) 2)))
-    (def st (Style make () 16 230))
-    (List for-each (fn (_ k) (Screen fill screen (+ y k) x w st)) (List range 0 h))
-    (List for-each (fn (_ i) (Screen put screen (+ y 1 i) (+ x 3) (List ref i lines) st))
+    (def style (if (%ascii? st) (Style make (list (lit reverse)) () ()) (Style make () 16 230)))
+    (List for-each (fn (_ k) (Screen fill screen (+ y k) x w style)) (List range 0 h))
+    (List for-each (fn (_ i) (Screen put screen (+ y 1 i) (+ x 3) (%plain st (List ref i lines)) style))
       (List range 0 (List length lines)))))
 
 (def %keys-line
@@ -1058,12 +1127,13 @@
         (%draw-panel! st screen)
         (Screen put screen (- rows 2) 0 (%get st %msg) (Style make (list (lit bold)) () ()))
         (Screen put screen (- rows 1) 0
-          (match ((not (null? (%get st %command))) (Str8 append ":" (%get st %command) "▏"))
-                 ((not (str=? (%get st %input) "")) (Str8 append "Move: " (%get st %input) "▏   Enter plays it, Esc clears"))
-                 ((null? (%get st %puzzle)) %keys-line)
-                 (#t %puzzle-keys-line))
+          (%plain st
+            (match ((not (null? (%get st %command))) (Str8 append ":" (%get st %command) "▏"))
+                   ((not (str=? (%get st %input) "")) (Str8 append "Move: " (%get st %input) "▏   Enter plays it, Esc clears"))
+                   ((null? (%get st %puzzle)) %keys-line)
+                   (#t %puzzle-keys-line)))
           (Style make (if (if (null? (%get st %command)) (str=? (%get st %input) "") #f) (list (lit dim)) ()) () ()))
-        (when (%get st %help) (%draw-help! screen))
+        (when (%get st %help) (%draw-help! st screen))
         (when (%get st %choose) (%draw-choice! st screen))))))
 
 ; How many of the library's puzzles have each theme in each band, read
@@ -1092,8 +1162,8 @@
       (List append (list (Str8 append "Puzzles, " (first b)) "")
         (List map (fn (_ c) (Str8 append (first c) "   " (Str8 pad-right 20 #\space (List ref 2 c)) (count c) "   " (score c))) %choices)
         (list "x   x-chess's own, unrated" "l   lichess's puzzle of the day" "" "< >  another rating · any other key: back to the game")))
-    (%draw-box! screen 58 lines)))
+    (%draw-box! st screen 58 lines)))
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?
-  tui-draw! tui-puzzles! tui-work!)
+  tui-draw! tui-puzzles! tui-work! tui-theme tui-theme-names)

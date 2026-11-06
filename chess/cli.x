@@ -32,6 +32,7 @@
 (import chess/player player-builtin player-start player-quit!)
 (import chess/match match-run)
 (import chess/app app-run)
+(import chess/tui tui-theme tui-theme-names)
 (import chess/puzzle puzzle-set puzzle-list-source puzzle-file-source puzzle-filter puzzle-range puzzle-library)
 (import x/sys/date)
 (import chess/book book-use!)
@@ -40,7 +41,7 @@
 (def %usage
   (Str8 join "\n"
     (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]"
-          "                         [--book FILE|--no-book]"
+          "                         [--board wood|green|blue|grey|ascii] [--book FILE|--no-book]"
           "       x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH]"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
@@ -50,6 +51,8 @@
           "A game against the engine on a terminal, the board filling it (? lists the keys);"
           "--line plays it a line at a time instead (help lists the commands), --letters draws"
           "the pieces as letters, --coach judges your moves against the engine's."
+          "--board draws the board in a theme: wood (the default), green, blue, grey, or ascii,"
+          "letters and no colour."
           "--puzzle sets the board's puzzles from the 2,342 x-chess ships, cut from the lichess"
           "puzzle database, easiest first; --puzzles FILE those of a CSV of that database."
           "--theme takes those with a theme of the database's (mateIn4, mate, fork, pin, ...),"
@@ -110,6 +113,10 @@
       ((str=? a "--puzzles")
         (if (null? value) (list (pair (lit error) "--puzzles takes a file"))
           (self (List drop 2 args) (pair (pair (lit puzzles) value) opts))))
+      ((str=? a "--board")
+        (if (if (null? value) #t (null? (tui-theme value)))
+          (list (pair (lit error) (Str8 append "--board takes one of " (Str8 join ", " (tui-theme-names)))))
+          (self (List drop 2 args) (pair (pair (lit board) value) opts))))
       ((str=? a "--theme")
         (if (null? value) (list (pair (lit error) "--theme takes a theme: mateIn2, mate, fork, ..."))
           (self (List drop 2 args) (pair (pair (lit theme) value) opts))))
@@ -196,6 +203,7 @@
       (if (null? (%opt opts (lit depth))) () (list (pair (lit depth) (%opt opts (lit depth)))))
       (if (null? (%opt opts (lit think))) () (list (pair (lit think) #t)))
       (if (null? (%opt opts (lit letters))) () (list (pair (lit letters) #t)))
+      (if (null? (%opt opts (lit board))) () (list (pair (lit board) (%opt opts (lit board)))))
       (if (null? (%opt opts (lit coach))) () (list (pair (lit coach) #t))))))
 
 ; The puzzles OPTS ask for, those of --theme and --rating: --puzzles
