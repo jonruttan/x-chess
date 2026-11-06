@@ -26,6 +26,16 @@ chess/cli: the options, and what is answered without a game.
 ---
     ((('book . "openings.bin")) (('tables . #t) ('book . 'none)) (('error . "--book takes a Polyglot file")))
 
+### --board takes a theme's name
+
+```chess
+(write (list (chess-options (list "--board" "ascii") ())
+             (chess-options (list "--board" "zap") ())
+             (chess-options (list "--board") ())))
+```
+---
+    ((('board . "ascii")) (('error . "--board takes one of wood, green, blue, grey, ascii")) (('error . "--board takes one of wood, green, blue, grey, ascii")))
+
 ### a book that is not there is refused before play
 
 ```chess

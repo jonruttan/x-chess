@@ -20,7 +20,7 @@ PRESS?), the columns and rows counted from 1 as a terminal reports them.
 ```output
    ●  x-chess (Black)                                         Playing x-chess · 5 s a move
 8    ♜      ♞      ♝      ♛      ♚      ♝      ♞      ♜       Thinking
-1    ♖      ♘      ♗      ♕      ♔      ♗      ♘      ♖
+1    ♜      ♞      ♝      ♛      ♚      ♝      ♞      ♜
      a      b      c      d      e      f      g      h
    ○  You (White)
 type or click a move · u back · v turn · i hint · m move now · l analyse · z puzzles · ? keys · q qu
@@ -69,6 +69,97 @@ Too small: x-chess needs 52 by 14.
 8  R  N  B  K  Q  B  N  R
    h  g  f  e  d  c  b  a
 ```
+
+## themes
+
+### wood, the default: the pieces bold, white's white and black's black, on their squares
+
+```chess
+(def st (tui-make ()))
+(def s (Screen make 30 100))
+(spec-draw! st s)
+(def at (fn (_ r c) (Screen style-at s r c)))
+(write (list (Style has? (at 23 33) (lit bold)) (Style has? (at 2 33) (lit bold))
+             (Style fg (at 23 33)) (Style fg (at 2 33)) (Style bg (at 23 33)) (Style bg (at 2 33))))
+```
+---
+    (#t #t 231 16 137 180)
+
+### green, blue and grey: the same pieces on squares of their own
+
+```chess
+(def colours
+  (fn (_ name)
+    (def s (Screen make 30 100))
+    (spec-draw! (tui-make (list (pair (lit board) name))) s)
+    (list (Style fg (Screen style-at s 23 33)) (Style bg (Screen style-at s 23 33)) (Style bg (Screen style-at s 2 33)))))
+(write (List map colours (list "green" "blue" "grey")))
+```
+---
+    ((231 65 108) (231 67 110) (231 242 248))
+
+### ascii: letters, black's in lower case, the dark squares dotted, no colour
+
+```chess
+(def st (tui-make (list (pair (lit board) "ascii"))))
+(spec-keys! st (list "e" "4" (lit enter)))
+(def s (Screen make 16 60))
+(spec-draw! st s)
+(display (spec-rows s (list 0 1 2 5 6 7 8 9 10)))
+(newline)
+(write (list (Style has? (Screen style-at s 8 15) (lit bold)) (Style fg (Screen style-at s 8 15)) (Style bg (Screen style-at s 8 15))))
+```
+---
+```output
+   B  x-chess (Black)         Playing x-chess | 5 s a move
+8  r .n. b .q. k .b. n .r. :
+7 .p. p .p. p .p. p .p. p  :  Thinking
+4    ...   ...-P-...   ...
+3 ...   ...   ...   ...
+2  P .P. P .P.---.P. P .P.    Moves
+1 .R. N .B. Q .K. B .N. R       1. e4
+   a  b  c  d  e  f  g  h
+   W  You (White)
+(#t () ())
+```
+
+### ascii: a piece picked up is reversed, the squares it can go to starred
+
+```chess
+(def st (tui-make (list (pair (lit board) "ascii"))))
+(def s (Screen make 16 60))
+(spec-draw! st s)
+(tui-key! st (list (lit mouse) 0 16 8 #t))
+(spec-draw! st s)
+(display (spec-rows s (list 5 6 7)))
+(newline)
+(write (list (Style has? (Screen style-at s 7 15) (lit reverse)) (Style has? (Screen style-at s 6 15) (lit reverse))))
+```
+---
+```output
+4    ...   ... * ...   ...
+3 ...   ...   .*.   ...
+2  P .P. P .P. P .P. P .P.    Moves
+(#t #f)
+```
+
+### :board steps through the themes; :board NAME picks one; a name it does not know is said
+
+```chess
+(def st (tui-make ()))
+(def s (Screen make 30 100))
+(def said
+  (fn (_ keys)
+    (spec-keys! st (List append (list ":") keys (list (lit enter))))
+    (spec-draw! st s)
+    (spec-rows s (list 28))))
+(write (list (said (list "b" "o" "a" "r" "d"))
+             (said (list "b" "o" "a" "r" "d" " " "a" "s" "c" "i" "i"))
+             (said (list "b" "o" "a" "r" "d"))
+             (said (list "b" "o" "a" "r" "d" " " "z" "a" "p"))))
+```
+---
+    ("The green board." "The ascii board." "The wood board." "No such board: zap.  They are wood, green, blue, grey, ascii.")
 
 ## moves
 
