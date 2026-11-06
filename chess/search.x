@@ -11,7 +11,9 @@
 ; of an exchange.  Moves are tried best guess first: the move the last
 ; iteration chose, then captures by most valuable victim and least
 ; valuable attacker, then the two quiet moves that last cut off at the
-; same ply (the killers), then the rest.
+; same ply (the killers), then the rest.  A transposition table keeps
+; what each position searched gave, so a position met again is answered
+; from it or searched with its best move first.
 ;
 ; The search runs on a copy of the position and stops by raising, at a
 ; time, node or depth limit or when the poll function says so; the move
@@ -28,7 +30,7 @@
 (import x/sys/gc)
 (import x/core/doors int+ int- int* int/ int< int= int& int>> obj-ref obj-set!)
 (import chess/pst pst-worth)
-(import chess/board pos-copy pos-side pos-half pos-middle pos-end pos-phase pos-piece
+(import chess/board pos-copy pos-side pos-half pos-middle pos-end pos-phase pos-piece pos-hash-lo pos-hash-hi
   move-from move-to move-promo move-uci in-check? gen-moves make! unmake! make-checked! legal-moves)
 (import chess/book book-pick)
 (import chess/tables tables-load! tables-men table-probe)
@@ -54,8 +56,9 @@
 ; One Vector of counters, read and written by slot: 1 nodes, 2 the
 ; clock reading to stop at (0 for none), 3 the node count to stop at (0
 ; for none), 4 nodes until the next look at the clock and the poll, 5
-; nodes until the next collection.
-(def %state (Vector make 5 0))
+; nodes until the next collection, 6 the search's number, which marks
+; its entries in the transposition table.
+(def %state (Vector make 6 0))
 (def %killers (Vector make 256 0))
 (def %poll (fn (_) #f))
 
@@ -238,6 +241,76 @@
   (fn (_)
     (List map (fn (_ i) (obj-ref %pv (int+ i 1))) (List range 0 (obj-ref %pv-len 1)))))
 
+; --- the transposition table ---------------------------------------------------------------
+;
+; What the search found at a position, kept by the position's hash so a
+; position reached again, by another order of moves or in a deeper
+; iteration, is answered or ordered from it.  16384 entries of six
+; slots from (hash-lo & 16383) * 6: the hash's two limbs, the search it
+; belongs to, the best move found (0 for none), the depth searched times
+; 4 plus the bound, and the score.  An entry of an earlier search is
+; empty, so each search starts with an empty table.  A mate score is
+; kept as plies from the position, not from the root.
+
+(def %tt-entries 16384)
+(def %tt (Vector make (int* %tt-entries 6) 0))
+(def %cut (Vector make 128 0))
+
+(def %tt-exact 0)
+(def %tt-lower 1)
+(def %tt-upper 2)
+
+; The base of P's entry when it holds P for this search, else -1.
+(def %tt-find
+  (fn (_ p)
+    ((fn (_ b)
+       (match
+         ((int= (obj-ref %tt (int+ b 1)) (pos-hash-lo p))
+           (match
+             ((int= (obj-ref %tt (int+ b 2)) (pos-hash-hi p))
+               (match ((int= (obj-ref %tt (int+ b 3)) (obj-ref %state 6)) b) (#t -1)))
+             (#t -1)))
+         (#t -1)))
+     (int* (int& (pos-hash-lo p) (int- %tt-entries 1)) 6))))
+
+(def %mate-near (int- MATE 1000))
+
+(def %tt-score-in
+  (fn (_ s ply)
+    (match ((int< %mate-near s) (int+ s ply)) ((int< s (int- 0 %mate-near)) (int- s ply)) (#t s))))
+
+(def %tt-score-out
+  (fn (_ s ply)
+    (match ((int< %mate-near s) (int- s ply)) ((int< s (int- 0 %mate-near)) (int+ s ply)) (#t s))))
+
+; Keep R, the score P searched DEPTH plies within ALPHA and BETA gave,
+; and answer it.  M is the move the table held.
+(def %tt-store!
+  (fn (_ p depth ply alpha beta m r)
+    (match
+      ((int< r beta)
+        (match
+          ((int< alpha r) (%tt-put! p depth ply %tt-exact (%pv-first ply) r))
+          (#t (%tt-put! p depth ply %tt-upper m r))))
+      (#t (%tt-put! p depth ply %tt-lower (match ((int< ply 128) (obj-ref %cut (int+ ply 1))) (#t m)) r)))
+    r))
+
+; The first move of ply PLY's line, or 0 when it keeps none.
+(def %pv-first
+  (fn (_ ply)
+    (match ((int< ply 126) (match ((int< 0 (obj-ref %pv-len (int+ ply 1))) (obj-ref %pv (int+ (int* ply 128) 1))) (#t 0)))
+           (#t 0))))
+
+(def %tt-put!
+  (fn (_ p depth ply bound m r)
+    (def b (int* (int& (pos-hash-lo p) (int- %tt-entries 1)) 6))
+    (obj-set! %tt (int+ b 1) (pos-hash-lo p))
+    (obj-set! %tt (int+ b 2) (pos-hash-hi p))
+    (obj-set! %tt (int+ b 3) (obj-ref %state 6))
+    (obj-set! %tt (int+ b 4) m)
+    (obj-set! %tt (int+ b 5) (int+ (int* depth 4) bound))
+    (obj-set! %tt (int+ b 6) (%tt-score-in r ply))))
+
 ; --- alpha-beta ----------------------------------------------------------------------------
 ;
 ; The score of P searched DEPTH plies, within ALPHA and BETA; PLY is how
@@ -272,15 +345,42 @@
            ((int< 0 v) (int- MATE (int+ ply (int- v 1))))
            (#t (int- (int+ ply (int- (int- 0 v) 1)) MATE)))))
 
+; A node: answered from the table when it holds P searched as deep, else
+; searched with the table's move first and the answer kept there.
 (def %search-node
   (fn (_ p depth alpha beta ply)
     (%tick!)
-    (%search-ordered p depth alpha beta ply (in-check? p))))
+    (%search-entry p depth alpha beta ply (%tt-find p))))
+
+(def %search-entry
+  (fn (_ p depth alpha beta ply b)
+    (match
+      ((int< b 0) (%search-stored p depth alpha beta ply 0))
+      ((int= ply 0) (%search-stored p depth alpha beta ply (obj-ref %tt (int+ b 4))))
+      ((int< (int>> (obj-ref %tt (int+ b 5)) 2) depth) (%search-stored p depth alpha beta ply (obj-ref %tt (int+ b 4))))
+      (#t (%search-hit p depth alpha beta ply (obj-ref %tt (int+ b 4)) (int& (obj-ref %tt (int+ b 5)) 3)
+            (%tt-score-out (obj-ref %tt (int+ b 6)) ply))))))
+
+; The table holds P searched as deep: its move M, its bound and its
+; score S.  An exact score is the answer; a bound that settles the
+; window answers its edge; any other is searched.
+(def %search-hit
+  (fn (_ p depth alpha beta ply m bound s)
+    (match
+      ((int= bound %tt-exact) (match ((int< s alpha) alpha) ((int< beta s) beta) (#t s)))
+      ((int= bound %tt-lower) (match ((int< s beta) (%search-stored p depth alpha beta ply m)) (#t beta)))
+      ((int< alpha s) (%search-stored p depth alpha beta ply m))
+      (#t alpha))))
+
+(def %search-stored
+  (fn (_ p depth alpha beta ply m)
+    (%tt-store! p depth ply alpha beta m
+      (%search-ordered p depth alpha beta ply (in-check? p) (match ((int= ply 0) (obj-ref %best 1)) (#t m))))))
 
 (def %search-ordered
-  (fn (_ p depth alpha beta ply check)
+  (fn (_ p depth alpha beta ply check first-move)
     (%search-moves p
-      (%order p (gen-moves p #f) (match ((int= ply 0) (obj-ref %best 1)) (#t 0)) ply)
+      (%order p (gen-moves p #f) first-move ply)
       ; a side in check looks one ply further: the reply is forced
       (match (check (int+ depth 1)) (#t depth))
       alpha beta ply check 0)))
@@ -319,6 +419,7 @@
 (def %search-cut
   (fn (_ p m ply beta)
     (%killer! p m ply)
+    (match ((int< ply 128) (obj-set! %cut (int+ ply 1) m)) (#t ()))
     beta))
 
 ; --- the root -----------------------------------------------------------------------------
@@ -340,6 +441,7 @@
     (obj-set! %state 3 nodes)
     (obj-set! %state 4 %check-nodes)
     (obj-set! %state 5 %collect-nodes)
+    (obj-set! %state 6 (int+ (obj-ref %state 6) 1))
     (obj-set! %best 1 0)
     (obj-set! %best 2 0)
     (List for-each (fn (_ i) (obj-set! %killers i 0)) (List range 1 257))

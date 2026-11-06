@@ -7,7 +7,7 @@
 ; @license MIT No Attribution (MIT-0)
 
 (import chess/board PAWN KNIGHT BISHOP ROOK QUEEN KING WHITE BLACK FLAG-EP FLAG-CASTLE FLAG-DOUBLE
-  pos-piece pos-side pos-castle pos-ep pos-half pos-full pos-king pos-copy pos-middle pos-end pos-phase
+  pos-piece pos-side pos-castle pos-ep pos-half pos-full pos-king pos-copy pos-middle pos-end pos-phase pos-hash-lo pos-hash-hi
   piece-kind piece-colour piece-letter
   sq-file sq-rank sq-make sq-name sq-parse
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci
@@ -41,7 +41,7 @@
 
 (provide chess/base
   PAWN KNIGHT BISHOP ROOK QUEEN KING WHITE BLACK FLAG-EP FLAG-CASTLE FLAG-DOUBLE
-  pos-piece pos-side pos-castle pos-ep pos-half pos-full pos-king pos-copy pos-middle pos-end pos-phase
+  pos-piece pos-side pos-castle pos-ep pos-half pos-full pos-king pos-copy pos-middle pos-end pos-phase pos-hash-lo pos-hash-hi
   piece-kind piece-colour piece-letter
   sq-file sq-rank sq-make sq-name sq-parse
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci
