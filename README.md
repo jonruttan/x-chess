@@ -5,7 +5,7 @@ at the terminal, and the Universal Chess Interface for chess GUIs and
 other engines.
 
     x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]
-                  [--book FILE|--no-book]
+                  [--board wood|green|blue|grey|ascii] [--book FILE|--no-book]
     x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH]
     x -l chess -- --uci
     x -l chess -- --perft N [--fen FEN]
@@ -26,6 +26,14 @@ by 29, 5 by 2 from 70 by 21, 3 by 1 down to 52 by 14).  Beside the board
 a bar shows who stands better; to the right are the engine's thinking,
 each depth's score and line as it finishes, and the moves, the last one
 marked.  The last move's squares are yellowed, a king in check is red.
+
+The board comes in themes, `--board NAME` or `:board NAME` (`:board`
+alone steps to the next): wood, the default, green, blue and grey draw
+each side's pieces solid in its own colour, white's white and black's
+black, on squares of those colours; ascii draws the pieces as letters,
+white's in upper case, with no colour, the dark squares dotted, the
+last move's squares dashed and the others marked in reverse video.
+The pieces are bold in every theme.
 
 A move is typed (SAN or long algebraic, then Enter), or made with the
 mouse, a click on the piece then on its square, or with the arrows and
@@ -51,7 +59,8 @@ commands:
 
 and `:` takes a command: `fen FEN`, `time S`, `depth N`, `engine CMD`,
 `save FILE` (the game as PGN), `white`, `black`, `both`, `new`,
-`puzzle [THEME|daily]`, `puzzles FILE [THEME] [LOW-HIGH]`, `coach`.
+`puzzle [THEME|daily]`, `puzzles FILE [THEME] [LOW-HIGH]`, `coach`,
+`board [NAME]`.
 
 ## Puzzles
 
