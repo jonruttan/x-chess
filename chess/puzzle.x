@@ -31,6 +31,7 @@
 (import chess/mate mate-forced)
 (import x/sys/file)
 (import x/sys/gc)
+(import x/type/dict)
 
 (def puzzle-make
   (fn (_ fen solution name rating id themes)
@@ -246,6 +247,33 @@
     (def root (guard (e ()) %lang-root))
     (if (str? root) (Str8 append root "/chess/puzzles.csv") ())))
 
+; How many of the puzzles in the CSV at PATH have each theme in each
+; band, from the .counts file beside it (tools/puzzle-library.sh writes
+; it): a Dict of "THEME LOW HIGH" to the count, THEME * for any, or ()
+; when there is no such file.
+(def puzzle-counts
+  (fn (_ path)
+    (def next (if (Str8 ends? ".csv" path)
+                (guard (e ()) (puzzle-lines (Str8 append (str-byte-sub path 0 (- (Str8 length path) 4)) ".counts")))
+                ()))
+    (def d (Dict make 512))
+    (def read
+      (fn (self)
+        (def l (next))
+        (unless (null? l)
+          (do ((fn (_ ws) (when (= (List length ws) 4)
+                            (d set! (Str8 append (first ws) " " (List ref 1 ws) " " (List ref 2 ws)) (parse-int (List ref 3 ws)))))
+               (%words l))
+              (self)))))
+    (if (null? next) () (do (read) d))))
+
+; Of COUNTS, as puzzle-counts gives them, how many puzzles have THEME
+; ("" for any) rated from LOW to HIGH, or () when it is not known.
+(def puzzle-count
+  (fn (_ counts theme low high)
+    (if (null? counts) ()
+      (counts get (Str8 append (if (str=? theme "") "*" theme) " " (io-display-to-str low) " " (io-display-to-str high))))))
+
 ; The range TEXT gives, LOW-HIGH, LOW- or -HIGH: (low . high), 0 for no
 ; bound, or () when it does not read as one.
 (def puzzle-range
@@ -293,4 +321,5 @@
 
 (provide chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library
-  puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source puzzle-in? puzzle-lines)
+  puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source puzzle-in? puzzle-lines
+  puzzle-counts puzzle-count)

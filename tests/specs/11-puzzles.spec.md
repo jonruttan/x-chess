@@ -104,6 +104,19 @@ tests/puzzles.csv holds lines in the lichess database's form.
 ---
     (#t 40 #t #t ((1 746) (5 1077) (2 847)) 1800)
 
+### the counts beside the library, as many as the library gives, and none beside a file without them
+
+```chess
+(def c (puzzle-counts (puzzle-library)))
+(def tally (fn (self next) (if (null? (next)) 0 (+ 1 (self next)))))
+(write (list (puzzle-count c "mateIn4" 1000 1399) (puzzle-count c "" 0 0) (puzzle-count c "fork" 2200 0)
+             (tally (puzzle-file-source (puzzle-library) "fork" 2200 0))
+             (puzzle-count c "nosuch" 0 0)
+             (puzzle-counts (Str8 append (Sys getenv "CHESS_TESTS") "/puzzles.csv"))))
+```
+---
+    (40 2342 54 54 () ())
+
 ### every solution of the hardest mates in five is legal in the engine's rules and ends in mate
 
 ```chess
@@ -250,19 +263,19 @@ Hint: Ra8#
 7    ♟      ♟      ♟
                         Puzzles, any rating
 
-6                       1   Mate in one
-                        2   Mate in two
-                        3   Mate in three
-5                       4   Mate in four
-                        5   Mate in five
-                        f   Forks
-4                       p   Pins
-                        s   Skewers
-                        d   Discovered attacks
-3                       t   Trapped pieces
-                        h   Pieces left hanging
-                        e   Endgames
-2    ♙      ♙      ♙    a   All of them
+6                       1   Mate in one          182
+                        2   Mate in two          200
+                        3   Mate in three        200
+5                       4   Mate in four         200
+                        5   Mate in five         160
+                        f   Forks                258
+4                       p   Pins                 272
+                        s   Skewers              207
+                        d   Discovered attacks   287
+3                       t   Trapped pieces       204
+                        h   Pieces left hanging  216
+                        e   Endgames             977
+2    ♙      ♙      ♙    a   All of them         2342
                         x   x-chess's own, unrated
 
 1    ♖      ♘      ♗    < >  another rating · any other key: back to the game

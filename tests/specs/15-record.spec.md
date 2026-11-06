@@ -99,10 +99,10 @@ back2 950 missed mate mateIn1
 7    ♟      ♟      ♟
                         Puzzles, rated 1000 to 1399
 
-6                       1   Mate in one
-                        2   Mate in two
-                        3   Mate in three
-5                       4   Mate in four          1 of 2 solved
-                        5   Mate in five
+6                       1   Mate in one           40
+                        2   Mate in two           40
+                        3   Mate in three         40
+5                       4   Mate in four          40   1 of 2 solved
+                        5   Mate in five          40
    ○  x-chess (White)   +2                                    Puzzle 1 · 0 of 1 solved · rated 1251
 ```
