@@ -33,9 +33,10 @@
 (import chess/game game-new game-pos game-start game-moves game-play! game-undo! game-result game-pgn)
 (import chess/san move-san moves-san move-parse)
 (import chess/player player-builtin player-start player-name player-quit!)
-(import chess/puzzle puzzle-fen puzzle-title puzzle-rating puzzle-solution puzzle-judge puzzle-set
+(import chess/puzzle puzzle-fen puzzle-title puzzle-rating puzzle-id puzzle-solution puzzle-judge puzzle-set
   puzzle-list-source puzzle-file-source puzzle-filter puzzle-range puzzle-library puzzle-counts puzzle-count)
-(import chess/record record-path record-load record-add! record-unsolved record-score)
+(import chess/record record-path record-load record-add! record-solved? record-unsolved record-score)
+(import chess/daily daily-path daily-fetch daily-get)
 
 (def %game 0)
 (def %view 1)       ; the side at the bottom: 0 white, 8 black
@@ -70,7 +71,9 @@
 (def %record 30)      ; the puzzles finished, read at first need: see chess/record
 (def %record-path 31) ; the file they are kept in
 (def %counts-read 32) ; (the library's counts, or ()) once read: see %library-counts
-(def %slots 33)
+(def %pending 33)     ; work to do once the screen is drawn: a function of the state, or ()
+(def %daily 34)       ; (path . fetch) for the puzzle of the day: see chess/daily
+(def %slots 35)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -106,6 +109,7 @@
     (%put! st %choose #f)
     (%put! st %band 0)
     (%put! st %record-path (opt (lit record) (record-path)))
+    (%put! st %daily (opt (lit daily) (pair (daily-path) daily-fetch)))
     (unless (null? (opt (lit puzzles) ())) (tui-puzzles! st (opt (lit puzzles) ())))
     st))
 
@@ -414,7 +418,8 @@
       (tui-puzzles! st (%chosen st theme)))))
 
 ; KEY pressed with the choice shown: < and > another band, x the built-in
-; puzzles, a theme's key its puzzles; any other closes the choice.
+; puzzles, l the puzzle of the day, a theme's key its puzzles; any other
+; closes the choice.
 (def %choose-key!
   (fn (_ st key)
     (def c (if (str? key) (List find (fn (_ c) (str=? (first c) key)) %choices) ()))
@@ -423,8 +428,35 @@
       ((if (%is? key ">") #t (eq? key (lit right)))
         (%put! st %band (%min (- (List length %bands) 1) (+ (%get st %band) 1))))
       ((%is? key "x") (do (%put! st %choose #f) (tui-puzzles! st (puzzle-list-source (puzzle-set)))))
+      ((%is? key "l") (do (%put! st %choose #f) (%ask-daily! st)))
       ((null? c) (%put! st %choose #f))
       (#t (do (%put! st %choose #f) (%start-chosen! st (List ref 1 c)))))))
+
+; Fetch the puzzle of the day once the screen says so: the fetch takes
+; seconds.
+(def %ask-daily!
+  (fn (_ st)
+    (%put! st %msg "Asking lichess for the puzzle of the day...")
+    (%put! st %pending %daily!)))
+
+; Set the puzzle of the day, or say why there is none, or that it is
+; solved.
+(def %daily!
+  (fn (_ st)
+    (def d (%get st %daily))
+    (guard (e (%put! st %msg (Str8 append "x-chess: " (if (Err err? e) (e msg) (io-display-to-str e)))))
+      ((fn (_ got)
+         (def z (first got))
+         (if (record-solved? (%record-of st) (puzzle-id z))
+           (%put! st %msg (Str8 append "You have solved today's puzzle, " (puzzle-id z) ", rated " (io-display-to-str (puzzle-rating z)) "."))
+           (do (tui-puzzles! st (puzzle-list-source (list z)))
+               (unless (str=? (rest got) "") (%put! st %msg (Str8 append "x-chess: " (rest got) ".  " (%get st %msg)))))))
+       (daily-get (first d) (rest d))))))
+
+; The work the screen waited for, done: whether there was any.
+(def tui-work!
+  (fn (_ st)
+    ((fn (_ w) (if (null? w) #f (do (%put! st %pending ()) (w st) #t))) (%get st %pending))))
 
 ; The puzzles of :puzzles FILE [THEME] [LOW-HIGH], as WORDS: a source.
 (def %file-puzzles
@@ -667,7 +699,7 @@
                 (%put! st %msg (Str8 append "The engine is " (player-name pl) "."))))))
       ((str=? cmd "coach") (%coach! st))
       ((str=? cmd "puzzle")
-        (if (str=? arg "") (%put! st %choose #t) (%start-chosen! st arg)))
+        (match ((str=? arg "") (%put! st %choose #t)) ((str=? arg "daily") (%ask-daily! st)) (#t (%start-chosen! st arg))))
       ((str=? cmd "puzzles")
         (if (str=? arg "") (%put! st %msg "puzzles takes a file, then a theme and a rating range if you like")
           (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg))))
@@ -1059,9 +1091,9 @@
     (def lines
       (List append (list (Str8 append "Puzzles, " (first b)) "")
         (List map (fn (_ c) (Str8 append (first c) "   " (Str8 pad-right 20 #\space (List ref 2 c)) (count c) "   " (score c))) %choices)
-        (list "x   x-chess's own, unrated" "" "< >  another rating · any other key: back to the game")))
+        (list "x   x-chess's own, unrated" "l   lichess's puzzle of the day" "" "< >  another rating · any other key: back to the game")))
     (%draw-box! screen 58 lines)))
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?
-  tui-draw! tui-puzzles!)
+  tui-draw! tui-puzzles! tui-work!)

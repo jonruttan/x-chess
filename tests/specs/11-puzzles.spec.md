@@ -260,29 +260,29 @@ Hint: Ra8#
 ```
 ---
 ```output
-7    ♟      ♟      ♟
-                        Puzzles, any rating
+7    ♟      ♟      ♟    Puzzles, any rating
 
-6                       1   Mate in one          182
-                        2   Mate in two          200
+                        1   Mate in one          182
+6                       2   Mate in two          200
                         3   Mate in three        200
-5                       4   Mate in four         200
-                        5   Mate in five         160
+                        4   Mate in four         200
+5                       5   Mate in five         160
                         f   Forks                258
-4                       p   Pins                 272
-                        s   Skewers              207
+                        p   Pins                 272
+4                       s   Skewers              207
                         d   Discovered attacks   287
-3                       t   Trapped pieces       204
-                        h   Pieces left hanging  216
+                        t   Trapped pieces       204
+3                       h   Pieces left hanging  216
                         e   Endgames             977
-2    ♙      ♙      ♙    a   All of them         2342
-                        x   x-chess's own, unrated
+                        a   All of them         2342
+2    ♙      ♙      ♙    x   x-chess's own, unrated
+                        l   lichess's puzzle of the day
 
 1    ♖      ♘      ♗    < >  another rating · any other key: back to the game
 
 
-7    ♟      ♟      ♟
-                        Puzzles, rated 1000 to 1399
+7    ♟      ♟      ♟    Puzzles, rated 1000 to 1399
+
    ●  x-chess (Black)   +2                                    Puzzle 1 · 0 of 1 solved · rated 1227
 Mate in 4: White to move.
 A new game.

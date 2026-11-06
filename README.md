@@ -51,7 +51,7 @@ commands:
 
 and `:` takes a command: `fen FEN`, `time S`, `depth N`, `engine CMD`,
 `save FILE` (the game as PGN), `white`, `black`, `both`, `new`,
-`puzzle [THEME]`, `puzzles FILE [THEME] [LOW-HIGH]`, `coach`.
+`puzzle [THEME|daily]`, `puzzles FILE [THEME] [LOW-HIGH]`, `coach`.
 
 ## Puzzles
 
@@ -70,6 +70,7 @@ the choice, easiest first:
     e        endgames
     a        all of them
     x        the 21 made for x-chess, unrated
+    l        lichess's puzzle of the day
     < >      another rating band
 
 `--puzzle` sets the shipped ones on the board, `--puzzles FILE` or
@@ -80,6 +81,13 @@ names, `--theme mateIn4`, `mate` (any mate), `fork`, `pin`, `crushing`,
 `endgame` and the rest, and by rating, `--rating 1500-1800` (`1500-` or
 `-1800` for one bound).  `:puzzle THEME` and `:puzzles FILE THEME
 LOW-HIGH` do the same on the board.
+
+`l`, or `:puzzle daily`, asks lichess for its puzzle of the day
+(<https://lichess.org/api/puzzle/daily>, no account needed).  Each one
+fetched is kept as `daily.json` in `$XDG_CACHE_HOME/x-chess` or
+`~/.cache/x-chess`, and when lichess cannot be reached the one kept is
+set, and said to be.  The first fetch loads the http client and TLS, a
+few seconds more.
 
     sh tools/puzzle-library.sh lichess_db_puzzle.csv.zst chess/puzzles.csv
 

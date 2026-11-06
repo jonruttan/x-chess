@@ -26,7 +26,8 @@
 (import chess/game game-pos)
 (import chess/player player-think player-quit!)
 (import chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
-  tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!)
+  tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
+  tui-work!)
 
 (def %esc (fn (_ text) (Str8 append "\x1b" text)))
 
@@ -167,6 +168,7 @@
       ((tui-quit? st) ())
       ((not (null? %later))
         ((fn (_ key) (set! %later (rest %later)) (%act! st screen reader key) (self st screen reader)) (first %later)))
+      ((tui-work! st) (self st screen reader))
       ((tui-engine-to-move? st) (do (%engine-move! st screen reader) (self st screen reader)))
       ((tui-analysing? st)
         (do (%think st screen (%analysing-poll reader) 0)
