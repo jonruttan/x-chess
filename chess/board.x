@@ -60,7 +60,7 @@
 (def pos-ep (fn (_ p) (obj-ref p %f-ep)))
 (def pos-half (fn (_ p) (obj-ref p %f-half)))
 (def pos-full (fn (_ p) (obj-ref p %f-full)))
-(def pos-king (fn (_ p side) (obj-ref p (if (int= side 0) %f-wking %f-bking))))
+(def pos-king (fn (_ p side) (obj-ref p (match ((int= side 0) %f-wking) (#t %f-bking)))))
 (def pos-middle (fn (_ p) (obj-ref p %f-mg)))
 (def pos-end (fn (_ p) (obj-ref p %f-eg)))
 (def pos-phase (fn (_ p) (obj-ref p %f-phase)))
@@ -409,26 +409,49 @@
       (#t (self p sq side (rest steps) captures
             (%ray-moves p sq (int+ sq (first steps)) (first steps) side captures acc))))))
 
+; Whether the files FS of the back rank from BASE are empty.
+(def %castle-empty?
+  (fn (self p base fs)
+    (match ((null? fs) #t)
+           ((int= (obj-ref p (int+ base (int+ (first fs) 1))) 0) (self p base (rest fs)))
+           (#t #f))))
+
+; Whether ENEMY attacks none of the files FS of the back rank from BASE.
+(def %castle-safe?
+  (fn (self p base fs enemy)
+    (match ((null? fs) #t)
+           ((attacked? p (int+ base (first fs)) enemy) #f)
+           (#t (self p base (rest fs) enemy)))))
+
+; Whether the side whose back rank starts at BASE may castle by the
+; rights bit BIT: its ROOK in slot SLOT from BASE, the files EMPTY empty
+; and the files SAFE unattacked.
+(def %castle-open?
+  (fn (_ p base rights bit slot rook empty safe enemy)
+    (match ((int= (int& rights bit) 0) #f)
+           ((int= (obj-ref p (int+ base slot)) rook)
+             (match ((%castle-empty? p base empty) (%castle-safe? p base safe enemy)) (#t #f)))
+           (#t #f))))
+
+(def %short-empty (list 5 6))
+(def %short-safe (list 4 5 6))
+(def %long-empty (list 3 2 1))
+(def %long-safe (list 4 3 2))
+
 (def %castle-moves
   (fn (_ p side acc)
     (def c (obj-ref p %f-castle))
-    (def base (if (int= side 0) 0 112))
-    (def rights (if (int= side 0) c (int>> c 2)))
+    (def base (match ((int= side 0) 0) (#t 112)))
+    (def rights (match ((int= side 0) c) (#t (int>> c 2))))
     (def enemy (int- 8 side))
     (def rook (int+ 4 side))
-    (def empty? (fn (_ f) (int= (obj-ref p (int+ (int+ base f) 1)) 0)))
-    (def safe? (fn (_ f) (not (attacked? p (int+ base f) enemy))))
     (def short
-      (if (if (int= (int& rights 1) 0) #f
-            (if (int= (obj-ref p (int+ base 8)) rook)
-              (if (empty? 5) (if (empty? 6) (if (safe? 4) (if (safe? 5) (safe? 6) #f) #f) #f) #f) #f))
-        (pair (move-make (int+ base 4) (int+ base 6) 0 2) acc)
-        acc))
-    (if (if (int= (int& rights 2) 0) #f
-          (if (int= (obj-ref p (int+ base 1)) rook)
-            (if (empty? 3) (if (empty? 2) (if (empty? 1) (if (safe? 4) (if (safe? 3) (safe? 2) #f) #f) #f) #f) #f) #f))
-      (pair (move-make (int+ base 4) (int+ base 2) 0 2) short)
-      short)))
+      (match ((%castle-open? p base rights 1 8 rook %short-empty %short-safe enemy)
+               (pair (move-make (int+ base 4) (int+ base 6) 0 2) acc))
+             (#t acc)))
+    (match ((%castle-open? p base rights 2 1 rook %long-empty %long-safe enemy)
+             (pair (move-make (int+ base 4) (int+ base 2) 0 2) short))
+           (#t short))))
 
 (def %kind-moves
   (fn (_ p sq kind side captures acc)
@@ -459,7 +482,7 @@
   (fn (_ p captures)
     (def side (obj-ref p %f-side))
     (def moves (%gen-from p 0 side captures ()))
-    (if captures moves (%castle-moves p side moves))))
+    (match (captures moves) (#t (%castle-moves p side moves)))))
 
 ; --- making and unmaking ---------------------------------------------------------------
 ;
@@ -511,9 +534,10 @@
 (def %ray-pins?
   (fn (_ p ksq d enemy)
     ((fn (_ pc)
-       (if (%diagonal? d)
-         (if (int= pc (int+ 3 enemy)) #t (int= pc (int+ 5 enemy)))
-         (if (int= pc (int+ 4 enemy)) #t (int= pc (int+ 5 enemy)))))
+       (match
+         ((int= pc (int+ 5 enemy)) #t)
+         ((%diagonal? d) (int= pc (int+ 3 enemy)))
+         (#t (int= pc (int+ 4 enemy)))))
      (%ray-first p (int+ ksq d) d))))
 
 ; Make M on P.  Answers #t, or #f with P as it was when the move leaves
@@ -537,31 +561,32 @@
       (pair (int+ cap (int+ (int* castle 16) (int+ (int* (int+ ep 1) 256) (int* half 65536))))
             (obj-ref p %f-undo)))
     (%set p from 0)
-    (%set p to (if (int= promo 0) pc (int+ promo side)))
+    (%set p to (match ((int= promo 0) pc) (#t (int+ promo side))))
     (match
-      ((int= flags 1) (%set p (if (int= side 0) (int- to 16) (int+ to 16)) 0))
+      ((int= flags 1) (%set p (match ((int= side 0) (int- to 16)) (#t (int+ to 16))) 0))
       ((int= flags 2)
-        (if (int< from to)
-          (do (%set p (int+ from 1) (obj-ref p (int+ from 4))) (%set p (int+ from 3) 0))
-          (do (%set p (int- from 1) (obj-ref p (int- from 3))) (%set p (int- from 4) 0))))
+        (match
+          ((int< from to) (do (%set p (int+ from 1) (obj-ref p (int+ from 4))) (%set p (int+ from 3) 0)))
+          (#t (do (%set p (int- from 1) (obj-ref p (int- from 3))) (%set p (int- from 4) 0)))))
       (#t ()))
-    (when (int= (int& pc 7) 6) (obj-set! p (if (int= side 0) %f-wking %f-bking) to))
+    (match ((int= (int& pc 7) 6) (obj-set! p (match ((int= side 0) %f-wking) (#t %f-bking)) to)) (#t ()))
     (obj-set! p %f-castle
       (int& castle (int& (obj-ref %castle-keep (int+ from 1)) (obj-ref %castle-keep (int+ to 1)))))
-    (obj-set! p %f-ep (if (int= flags 4) (int+ from (if (int= side 0) 16 -16)) -1))
-    (obj-set! p %f-half (if (if (int= (int& pc 7) 1) #t (int< 0 cap)) 0 (int+ half 1)))
-    (when (int= side 8) (obj-set! p %f-full (int+ (obj-ref p %f-full) 1)))
+    (obj-set! p %f-ep (match ((int= flags 4) (int+ from (match ((int= side 0) 16) (#t -16)))) (#t -1)))
+    (obj-set! p %f-half (match ((int= (int& pc 7) 1) 0) ((int< 0 cap) 0) (#t (int+ half 1))))
+    (match ((int= side 8) (obj-set! p %f-full (int+ (obj-ref p %f-full) 1))) (#t ()))
     (obj-set! p %f-side (int- 8 side))
-    (def ksq (obj-ref p (if (int= side 0) %f-wking %f-bking)))
+    (def ksq (obj-ref p (match ((int= side 0) %f-wking) (#t %f-bking))))
     (def enemy (int- 8 side))
-    (if (match
-          ((int= (int& pc 7) 6) (attacked? p ksq enemy))
-          (check (attacked? p ksq enemy))
-          ((int= flags 1) (attacked? p ksq enemy))
-          (#t ((fn (_ d) (if (int= d 0) #f (%ray-pins? p ksq d enemy)))
-               (obj-ref %line (int+ (int- from ksq) 120)))))
-      (do (unmake! p m) #f)
-      #t)))
+    (match
+      ((match
+         ((int= (int& pc 7) 6) (attacked? p ksq enemy))
+         (check (attacked? p ksq enemy))
+         ((int= flags 1) (attacked? p ksq enemy))
+         (#t ((fn (_ d) (match ((int= d 0) #f) (#t (%ray-pins? p ksq d enemy))))
+              (obj-ref %line (int+ (int- from ksq) 120)))))
+        (do (unmake! p m) #f))
+      (#t #t))))
 
 ; Make M on P: #t, or #f with P as it was when M is not legal.
 (def make! (fn (_ p m) (make-checked! p m (in-check? p))))
@@ -577,37 +602,39 @@
     (obj-set! p %f-undo (rest (obj-ref p %f-undo)))
     (def side (int- 8 (obj-ref p %f-side)))
     (obj-set! p %f-side side)
-    (def pc (if (int= promo 0) (obj-ref p (int+ to 1)) (int+ 1 side)))
+    (def pc (match ((int= promo 0) (obj-ref p (int+ to 1))) (#t (int+ 1 side))))
     (%set p from pc)
     (%set p to (int& undo 15))
     (match
-      ((int= flags 1) (%set p (if (int= side 0) (int- to 16) (int+ to 16)) (int- 9 side)))
+      ((int= flags 1) (%set p (match ((int= side 0) (int- to 16)) (#t (int+ to 16))) (int- 9 side)))
       ((int= flags 2)
-        (if (int< from to)
-          (do (%set p (int+ from 3) (obj-ref p (int+ from 2))) (%set p (int+ from 1) 0))
-          (do (%set p (int- from 4) (obj-ref p from)) (%set p (int- from 1) 0))))
+        (match
+          ((int< from to) (do (%set p (int+ from 3) (obj-ref p (int+ from 2))) (%set p (int+ from 1) 0)))
+          (#t (do (%set p (int- from 4) (obj-ref p from)) (%set p (int- from 1) 0)))))
       (#t ()))
-    (when (int= (int& pc 7) 6) (obj-set! p (if (int= side 0) %f-wking %f-bking) from))
+    (match ((int= (int& pc 7) 6) (obj-set! p (match ((int= side 0) %f-wking) (#t %f-bking)) from)) (#t ()))
     (obj-set! p %f-castle (int& (int>> undo 4) 15))
     (obj-set! p %f-ep (int- (int& (int>> undo 8) 255) 1))
     (obj-set! p %f-half (int>> undo 16))
-    (when (int= side 8) (obj-set! p %f-full (int- (obj-ref p %f-full) 1)))
+    (match ((int= side 8) (obj-set! p %f-full (int- (obj-ref p %f-full) 1))) (#t ()))
     p))
 
 ; The legal moves of the side to move.
 (def legal-moves
   (fn (_ p)
     (def check (in-check? p))
-    (List filter (fn (_ m) (if (make-checked! p m check) (do (unmake! p m) #t) #f)) (gen-moves p #f))))
+    (List filter (fn (_ m) (match ((make-checked! p m check) (do (unmake! p m) #t)) (#t #f))) (gen-moves p #f))))
 
 (def %perft-count
   (fn (self p depth check ms n)
-    (if (null? ms) n
-      (self p depth check (rest ms)
-        (if (make-checked! p (first ms) check)
-          ((fn (_ k) (unmake! p (first ms)) (int+ n k))
-           (if (int= depth 1) 1 (perft p (int- depth 1))))
-          n)))))
+    (match
+      ((null? ms) n)
+      (#t (self p depth check (rest ms)
+            (match
+              ((make-checked! p (first ms) check)
+                ((fn (_ k) (unmake! p (first ms)) (int+ n k))
+                 (match ((int= depth 1) 1) (#t (perft p (int- depth 1))))))
+              (#t n)))))))
 
 ; The number of move paths DEPTH plies deep: perft, the move
 ; generator's check against the published counts.  The heap is
