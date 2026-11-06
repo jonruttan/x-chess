@@ -25,11 +25,12 @@
 (import chess/match match-run)
 (import chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
-  tui-puzzles!)
+  tui-puzzles! tui-work!)
 (import chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count)
 (import chess/record record-path record-load record-add! record-solved? record-unsolved record-score)
+(import chess/daily daily-url daily-path daily-fetch daily-from-text daily-get)
 (import chess/app app-run)
 (import chess/show show-board)
 (import chess/engine engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
@@ -54,11 +55,12 @@
   game-pgn player-builtin player-start player-name player-builtin? player-think player-new-game! player-quit!
   match-run tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
-  tui-puzzles!
+  tui-puzzles! tui-work!
   puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count
   record-path record-load record-add! record-solved? record-unsolved record-score
+  daily-url daily-path daily-fetch daily-from-text daily-get
   app-run
   show-board chess-version uci-run uci-think-ms play-run chess-main chess-options
   engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
