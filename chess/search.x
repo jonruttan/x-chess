@@ -109,11 +109,27 @@
     (def k2 (obj-ref %killers (int+ (int* ply 2) 2)))
     (%order-split p moves first-move k1 k2 () () () ())))
 
+; The lists %order-split joins are put together here rather than by
+; List's append, map and reverse: a method send looks its selector up
+; in the class's table, a cost paid at every node.
+
+; XS, then TAIL.
+(def %onto
+  (fn (self xs tail) (match ((null? xs) tail) (#t (pair (first xs) (self (rest xs) tail))))))
+
+; XS reversed, then TAIL.
+(def %rev-onto
+  (fn (self xs tail) (match ((null? xs) tail) (#t (self (rest xs) (pair (first xs) tail))))))
+
+; The moves of CAPS, a list of (score . move), then TAIL.
+(def %caps-onto
+  (fn (self caps tail) (match ((null? caps) tail) (#t (pair (rest (first caps)) (self (rest caps) tail))))))
+
 (def %order-split
   (fn (self p ms fm k1 k2 lead caps kill quiet)
     (match
       ((null? ms)
-        (List append lead (List map rest caps) kill (List reverse quiet)))
+        (%onto lead (%caps-onto caps (%onto kill (%rev-onto quiet ())))))
       ((int= (first ms) fm) (self p (rest ms) fm k1 k2 (list fm) caps kill quiet))
       ((match ((int< 0 (pos-piece p (move-to (first ms)))) #t) ((int< 0 (move-promo (first ms))) #t) (#t #f))
         (self p (rest ms) fm k1 k2 lead
