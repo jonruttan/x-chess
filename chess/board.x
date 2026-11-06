@@ -26,6 +26,7 @@
 (module chess/board)
 
 (import x/sys/gc)
+(import x/num/random)
 (import chess/pst pst-middle pst-end pst-phase)
 (import x/core/doors int+ int- int* int< int= int& int| int>> obj-ref obj-set!
   str-byte-ref str-byte-len str-byte-sub io-display-to-str)
@@ -52,7 +53,9 @@
 (def %f-mg 137)
 (def %f-eg 138)
 (def %f-phase 139)
-(def %slots 140)
+(def %f-zlo 140)
+(def %f-zhi 141)
+(def %slots 141)
 
 (def pos-piece (fn (_ p sq) (obj-ref p (int+ sq 1))))
 (def pos-side (fn (_ p) (obj-ref p %f-side)))
@@ -64,6 +67,8 @@
 (def pos-middle (fn (_ p) (obj-ref p %f-mg)))
 (def pos-end (fn (_ p) (obj-ref p %f-eg)))
 (def pos-phase (fn (_ p) (obj-ref p %f-phase)))
+(def pos-hash-lo (fn (_ p) (obj-ref p %f-zlo)))
+(def pos-hash-hi (fn (_ p) (obj-ref p %f-zhi)))
 
 (def piece-kind (fn (_ pc) (int& pc 7)))
 (def piece-colour (fn (_ pc) (int& pc 8)))
@@ -211,6 +216,7 @@
     (obj-set! p %f-half (num 4 0))
     (obj-set! p %f-full (num 5 1))
     (%score! p)
+    (%z-start! p)
     p))
 
 ; FEN's first field, P's pieces.
@@ -494,8 +500,86 @@
         (list (pair 0 13) (pair 7 14) (pair 4 12) (pair 112 7) (pair 119 11) (pair 116 3)))
       v))
 
+; --- the position's hash ------------------------------------------------------------
+;
+; A Zobrist hash, kept as moves are made and unmade: the exclusive or of
+; a number for each piece on its square, for the castling rights, for
+; the en passant square and for black to move.  It is two 16-bit limbs,
+; so it is the same on an engine of any word width.  The numbers are
+; drawn once from a fixed seed, each a pair of limbs: piece PC on SQ at
+; PC * 128 + SQ + 1 in %z (no piece is (0 . 0)), and in %zf the
+; castling rights C at C + 1, the en passant square E (-1 for none) at
+; E + 18, and black to move at 146, also kept as %z-black.
+
+(def %xor (prim-ref (lit int) (lit ^)))
+
+(def %z-draw
+  (fn (_ r n first)
+    (def v (Vector make n (pair 0 0)))
+    (List for-each (fn (_ i) (obj-set! v i (pair (r int 65536) (r int 65536)))) (List range first (int+ n 1)))
+    v))
+
+(def %z-random (Random sw 1070372))
+(def %z (%z-draw %z-random 2048 129))
+(def %zf (%z-draw %z-random 146 1))
+(obj-set! %zf 17 (pair 0 0))
+(def %z-black (obj-ref %zf 146))
+
+; Exclusive-or the limbs LO and HI into P's hash.
+(def %z-xor!
+  (fn (_ p lo hi)
+    (obj-set! p %f-zlo (%xor (obj-ref p %f-zlo) lo))
+    (obj-set! p %f-zhi (%xor (obj-ref p %f-zhi) hi))))
+
+; Exclusive-or the flag numbers at A and B into P's hash.
+(def %z-flags!
+  (fn (_ p a b)
+    (def x (obj-ref %zf a))
+    (def y (obj-ref %zf b))
+    (%z-xor! p (%xor (first x) (first y)) (%xor (rest x) (rest y)))))
+
+; Exclusive-or the number of PC on SQ into P's hash.
+(def %z-piece!
+  (fn (_ p pc sq)
+    ((fn (_ z) (%z-xor! p (first z) (rest z))) (obj-ref %z (int+ (int* pc 128) (int+ sq 1))))))
+
+; P's hash, from none: after a FEN has set the position.
+(def %z-start!
+  (fn (_ p)
+    (List for-each (fn (_ sq) (%z-piece! p (obj-ref p (int+ sq 1)) sq))
+      (List filter (fn (_ sq) (int= (int& sq 136) 0)) (List range 0 128)))
+    (%z-flags! p (int+ (obj-ref p %f-castle) 1) (int+ (obj-ref p %f-ep) 18))
+    (match ((int= (obj-ref p %f-side) 8) (%z-xor! p (first %z-black) (rest %z-black))) (#t ()))))
+
+; A move made or unmade: SIDE's PC from FROM, PLACED on TO, CAP the piece
+; it took there, FLAGS the move's, and CASTLE and EP the flags on the
+; other side of the move from P's.  Making and unmaking change the hash
+; by the same numbers, so each answers it here alike.
+(def %z-move!
+  (fn (_ p from to pc placed cap side flags castle ep)
+    (def a (obj-ref %z (int+ (int* pc 128) (int+ from 1))))
+    (def b (obj-ref %z (int+ (int* placed 128) (int+ to 1))))
+    (def c (obj-ref %z (int+ (int* cap 128) (int+ to 1))))
+    (obj-set! p %f-zlo
+      (%xor (obj-ref p %f-zlo) (%xor (%xor (first a) (first %z-black)) (%xor (first b) (first c)))))
+    (obj-set! p %f-zhi
+      (%xor (obj-ref p %f-zhi) (%xor (%xor (rest a) (rest %z-black)) (%xor (rest b) (rest c)))))
+    (match
+      ((int= flags 0) ())
+      ((int= flags 1) (%z-piece! p (int- 9 side) (match ((int= side 0) (int- to 16)) (#t (int+ to 16)))))
+      ((int= flags 2)
+        (match
+          ((int< from to) (do (%z-piece! p (int+ 4 side) (int+ from 3)) (%z-piece! p (int+ 4 side) (int+ from 1))))
+          (#t (do (%z-piece! p (int+ 4 side) (int- from 4)) (%z-piece! p (int+ 4 side) (int- from 1))))))
+      (#t ()))
+    (match ((int= castle (obj-ref p %f-castle)) ())
+           (#t (%z-flags! p (int+ castle 1) (int+ (obj-ref p %f-castle) 1))))
+    (match ((int= ep (obj-ref p %f-ep)) ())
+           (#t (%z-flags! p (int+ ep 18) (int+ (obj-ref p %f-ep) 18))))))
+
 ; Put PC on SQ, keeping the position's score: the middle-game and
-; end-game sums of the piece-square tables, and the phase.
+; end-game sums of the piece-square tables, and the phase.  The hash is
+; kept by %z-move!.
 (def %set
   (fn (_ p sq pc)
     (def i (int+ sq 1))
@@ -560,8 +644,9 @@
     (obj-set! p %f-undo
       (pair (int+ cap (int+ (int* castle 16) (int+ (int* (int+ ep 1) 256) (int* half 65536))))
             (obj-ref p %f-undo)))
+    (def placed (match ((int= promo 0) pc) (#t (int+ promo side))))
     (%set p from 0)
-    (%set p to (match ((int= promo 0) pc) (#t (int+ promo side))))
+    (%set p to placed)
     (match
       ((int= flags 1) (%set p (match ((int= side 0) (int- to 16)) (#t (int+ to 16))) 0))
       ((int= flags 2)
@@ -576,6 +661,7 @@
     (obj-set! p %f-half (match ((int= (int& pc 7) 1) 0) ((int< 0 cap) 0) (#t (int+ half 1))))
     (match ((int= side 8) (obj-set! p %f-full (int+ (obj-ref p %f-full) 1))) (#t ()))
     (obj-set! p %f-side (int- 8 side))
+    (%z-move! p from to pc placed cap side flags castle ep)
     (def ksq (obj-ref p (match ((int= side 0) %f-wking) (#t %f-bking))))
     (def enemy (int- 8 side))
     (match
@@ -598,11 +684,14 @@
     (def to (int& (int>> m 7) 127))
     (def promo (int& (int>> m 14) 15))
     (def flags (int>> m 18))
+    (def castle (obj-ref p %f-castle))
+    (def ep (obj-ref p %f-ep))
     (def undo (first (obj-ref p %f-undo)))
     (obj-set! p %f-undo (rest (obj-ref p %f-undo)))
     (def side (int- 8 (obj-ref p %f-side)))
     (obj-set! p %f-side side)
-    (def pc (match ((int= promo 0) (obj-ref p (int+ to 1))) (#t (int+ 1 side))))
+    (def placed (obj-ref p (int+ to 1)))
+    (def pc (match ((int= promo 0) placed) (#t (int+ 1 side))))
     (%set p from pc)
     (%set p to (int& undo 15))
     (match
@@ -616,6 +705,7 @@
     (obj-set! p %f-castle (int& (int>> undo 4) 15))
     (obj-set! p %f-ep (int- (int& (int>> undo 8) 255) 1))
     (obj-set! p %f-half (int>> undo 16))
+    (%z-move! p from to pc placed (int& undo 15) side flags castle ep)
     (match ((int= side 8) (obj-set! p %f-full (int- (obj-ref p %f-full) 1))) (#t ()))
     p))
 
@@ -652,7 +742,7 @@
 
 (provide chess/board
   PAWN KNIGHT BISHOP ROOK QUEEN KING WHITE BLACK FLAG-EP FLAG-CASTLE FLAG-DOUBLE
-  pos-piece pos-side pos-castle pos-ep pos-half pos-full pos-king pos-copy pos-middle pos-end pos-phase
+  pos-piece pos-side pos-castle pos-ep pos-half pos-full pos-king pos-copy pos-middle pos-end pos-phase pos-hash-lo pos-hash-hi
   piece-kind piece-colour piece-letter
   sq-file sq-rank sq-make sq-name sq-parse
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci

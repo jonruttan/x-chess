@@ -148,3 +148,38 @@ wiki's positions 3 to 6.
 ```
 ---
     2812
+
+## the hash
+
+### the same position by two orders of moves, from its FEN, and after each legal move made and unmade
+
+```chess
+(def h (fn (_ p) (pair (pos-hash-lo p) (pos-hash-hi p))))
+(def hash=? (fn (_ a b) (if (= (first a) (first b)) (= (rest a) (rest b)) #f)))
+(def played (fn (_ fen ts) ((fn (_ p) (List for-each (fn (_ t) (make! p (move-parse-uci p t))) ts) p) (pos-from-fen fen))))
+(def a (played fen-start (list "g1f3" "g8f6" "b1c3")))
+(def b (played fen-start (list "b1c3" "g8f6" "g1f3")))
+; each legal move: the hash made is the hash of the FEN made, and unmade is the hash before
+(def unkept
+  (fn (_ fen)
+    (def p (pos-from-fen fen))
+    (def before (h p))
+    (List length
+      (List filter
+        (fn (_ m)
+          (make! p m)
+          (def made (hash=? (h p) (h (pos-from-fen (pos-fen p)))))
+          (unmake! p m)
+          (if made (not (hash=? (h p) before)) #t))
+        (legal-moves p)))))
+(write (list (hash=? (h a) (h b)) (hash=? (h a) (h (pos-from-fen (pos-fen a))))
+             (hash=? (h (pos-from-fen fen-start)) (h (pos-from-fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1")))
+             (hash=? (h (pos-from-fen fen-start)) (h (pos-from-fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w Kkq - 0 1")))
+             (unkept fen-start)
+             (unkept "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+             (unkept "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1")
+             (unkept "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8")
+             (unkept "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3")))
+```
+---
+    (#t #t #f #f 0 0 0 0 0)
