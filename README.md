@@ -1,8 +1,8 @@
 # x-chess
 
-A chess engine on x-lang, as a lang bundle: a game against the engine
-at the terminal, and the Universal Chess Interface for chess GUIs and
-other engines.
+A chess engine written in [x-lang](https://github.com/jonruttan/x-lang),
+loaded as a lang: a game against the engine at the terminal, and the
+Universal Chess Interface for chess GUIs and other engines.
 
     x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]
                   [--board wood|green|blue|grey|ascii] [--book FILE|--no-book]
@@ -247,8 +247,11 @@ they are on disk.
   quiescence search of captures that leaves out a capture which could
   not reach alpha with two pawns to spare; it tries the last
   iteration's best move first, then captures by most valuable victim
-  and least valuable attacker, then two killer moves a ply.  A side in
-  check looks a ply further.  A clock or node limit holds from the
+  and least valuable attacker, then two killer moves a ply.  A
+  transposition table, keyed by an incremental Zobrist hash, keeps what
+  each position searched gave, so a position met again is answered from
+  it or searched with its best move first.  A side in check looks a ply
+  further.  A clock or node limit holds from the
   first ply: stopped before any move is searched, it plays the first
   legal one.  Each ply keeps the line that raised alpha there, so a
   finished depth reports the whole line it expects, not only its move.
@@ -257,18 +260,22 @@ they are on disk.
   king, blended by phase and kept up to date as pieces move.
 - x collects only when asked; the search collects every 2048 nodes.
 
-It searches 600 to 1,000 nodes a second on an Apple M-series machine:
-four plies from the start in about three seconds, three in a quiet
-middle game in five, and one or two where captures abound.
+Before the transposition table and the last change to move ordering, it
+searched 600 to 1,000 nodes a second on an Apple M-series machine: four
+plies from the start in about three seconds, three in a quiet middle game
+in five, and one or two where captures abound.
 
 ## Install
+
+It needs x-lang at the release `lang.xon` declares.
 
     make install          # into <share>/langs/chess, where x -l looks
     make test             # the spec suite
     make check            # the suite against tests/contract/known-failures.txt
 
-`lang.xon` declares the x-lang release the bundle needs.
-
 ## Licence
 
-MIT No Attribution (MIT-0).
+MIT No Attribution (MIT-0). See [LICENSE](LICENSE).
+
+The 781 numbers in `chess/book.x` are the Polyglot book format's published
+constants, which every reader of a Polyglot book carries.
