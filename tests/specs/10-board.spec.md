@@ -19,7 +19,7 @@ PRESS?), the columns and rows counted from 1 as a terminal reports them.
 ---
 ```output
    ●  x-chess (Black)                                         Playing x-chess · 5 s a move
-8    ♜      ♞      ♝      ♛      ♚      ♝      ♞      ♜       Thinking
+8    ♜      ♞      ♝      ♛      ♚      ♝      ♞      ♜       Score  not scored yet
 1    ♜      ♞      ♝      ♛      ♚      ♝      ♞      ♜
      a      b      c      d      e      f      g      h
    ○  You (White)
@@ -105,7 +105,7 @@ Too small: x-chess needs 52 by 14.
 (spec-keys! st (list "e" "4" (lit enter)))
 (def s (Screen make 16 60))
 (spec-draw! st s)
-(display (spec-rows s (list 0 1 2 5 6 7 8 9 10)))
+(display (spec-rows s (list 0 1 2 5 6 7 8 9 10 11)))
 (newline)
 (write (list (Style has? (Screen style-at s 8 15) (lit bold)) (Style fg (Screen style-at s 8 15)) (Style bg (Screen style-at s 8 15))))
 ```
@@ -113,13 +113,14 @@ Too small: x-chess needs 52 by 14.
 ```output
    B  x-chess (Black)         Playing x-chess | 5 s a move
 8  r .n. b .q. k .b. n .r. :
-7 .p. p .p. p .p. p .p. p  :  Thinking
+7 .p. p .p. p .p. p .p. p  :  Score  not scored yet
 4    ...   ...-P-...   ...
-3 ...   ...   ...   ...
-2  P .P. P .P.---.P. P .P.    Moves
-1 .R. N .B. Q .K. B .N. R       1. e4
+3 ...   ...   ...   ...       Thinking
+2  P .P. P .P.---.P. P .P.
+1 .R. N .B. Q .K. B .N. R
    a  b  c  d  e  f  g  h
-   W  You (White)
+   W  You (White)             Moves
+                                1. e4
 (#t () ())
 ```
 
@@ -138,8 +139,8 @@ Too small: x-chess needs 52 by 14.
 ---
 ```output
 4    ...   ... * ...   ...
-3 ...   ...   .*.   ...
-2  P .P. P .P. P .P. P .P.    Moves
+3 ...   ...   .*.   ...       Thinking
+2  P .P. P .P. P .P. P .P.
 (#t #f)
 ```
 
@@ -239,7 +240,7 @@ Not a legal move here: Nf6
 ```
 ---
 ```output
-8        ...Q...       .......       .......       ....... :  Thinking
+8        ...Q...       .......       .......       ....... :  Score  not scored yet
 7 .......   R   .......       .......       .......        :
 6        ...B...       .......       .......       ....... :
 5 .......   N   .......       ...k...       .......        :
@@ -337,13 +338,13 @@ Pick up one of your pieces.
 (tui-engine-played! st (List ref 4 r))
 (def s (Screen make 30 100))
 (spec-draw! st s)
-(display (spec-rows s (list 3 4 11 28)))
+(display (spec-rows s (list 7 8 15 28)))
 ```
 ---
 ```output
                                                                 2  +0.40  Nf6 Nc3
-                                                                1  -0.10  Nf6
-5                                                               1. e4       Nf6
+6                                       ♞                       1  -0.10  Nf6
+                                                                1. e4       Nf6
 x-chess plays Nf6
 ```
 

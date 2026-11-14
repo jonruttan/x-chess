@@ -318,6 +318,20 @@
 
 (def %best (Vector make 2 0))
 
+; The root's moves the search passes over, slot 1: () but in
+; search-excluding.
+(def %excluded (Vector make 1 ()))
+
+(def %unexcluded
+  (fn (_ ms)
+    (match ((null? (obj-ref %excluded 1)) ms)
+           (#t (List reject (fn (_ m) (List includes? m (obj-ref %excluded 1))) ms)))))
+
+(def %root-moves
+  (fn (_ p ply)
+    (match ((int= ply 0) (%unexcluded (gen-moves p #f)))
+           (#t (gen-moves p #f)))))
+
 (def %search
   (fn (_ p depth alpha beta ply)
     (%pv-clear! ply)
@@ -380,7 +394,7 @@
 (def %search-ordered
   (fn (_ p depth alpha beta ply check first-move)
     (%search-moves p
-      (%order p (gen-moves p #f) first-move ply)
+      (%order p (%root-moves p ply) first-move ply)
       ; a side in check looks one ply further: the reply is forced
       (match (check (int+ depth 1)) (#t depth))
       alpha beta ply check 0)))
@@ -435,7 +449,7 @@
   (fn (_ p depth ms nodes poll info)
     (def q (pos-copy p))
     (def t0 (Sys clock))
-    (def legal (legal-moves q))
+    (def legal (%unexcluded (legal-moves q)))
     (obj-set! %state 1 0)
     (obj-set! %state 2 (match ((int= ms 0) 0) (#t (int+ t0 (int* ms 1000)))))
     (obj-set! %state 3 nodes)
@@ -483,6 +497,16 @@
   (fn (_ p depth ms nodes poll info)
     (guard (e (match ((eq? (Err label e) (lit chess-done)) (e data)) (#t (error e))))
       (search p depth ms nodes poll info))))
+
+; search-best with the moves of EXCEPT passed over at the root: the best
+; of the others, or () when there are none.  Searched once for each move
+; found, the best few moves in turn.
+(def search-excluding
+  (fn (_ p except depth ms nodes poll info)
+    (obj-set! %excluded 1 except)
+    (def r (guard (e (do (obj-set! %excluded 1 ()) (error e))) (search-best p depth ms nodes poll info)))
+    (obj-set! %excluded 1 ())
+    r))
 
 ; --- the engine's move -----------------------------------------------------------
 ;
@@ -542,4 +566,4 @@
     (match ((int< 0 s) (int/ (int+ (int- MATE s) 1) 2))
            (#t (int- 0 (int/ (int+ s MATE) 2))))))
 
-(provide chess/search MATE evaluate search-best best-move mate-score? mate-in)
+(provide chess/search MATE evaluate search-best search-excluding best-move mate-score? mate-in)
