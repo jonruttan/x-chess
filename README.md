@@ -23,9 +23,9 @@ and otherwise plays the lines as moves and commands.  With no operands
 
 The squares are as large as the terminal allows (7 by 3 cells from 86
 by 29, 5 by 2 from 70 by 21, 3 by 1 down to 52 by 14).  Beside the board
-a bar shows who stands better; to the right are the engine's thinking,
-each depth's score and line as it finishes, and the moves, the last one
-marked.  The last move's squares are yellowed, a king in check is red.
+a bar shows who stands better; to the right are the score (below), the
+engine's thinking, each depth's score and line as it finishes, and the
+moves, the last one marked.  The last move's squares are yellowed, a king in check is red.
 
 The board comes in themes, `--board NAME` or `:board NAME` (`:board`
 alone steps to the next): wood, the default, green, blue and grey draw
@@ -54,6 +54,7 @@ commands:
     t        show or hide the thinking
     z        puzzles (below)
     j        the coach, on or off (below)
+    s        the engine's suggested moves, on or off (below)
     [ ]      back and forward through the game; Home, End
     p        letters or figures for the pieces (also --letters)
     ?        the keys
@@ -62,7 +63,28 @@ commands:
 and `:` takes a command: `fen FEN`, `time S`, `depth N`, `engine CMD`,
 `save FILE` (the game as PGN), `white`, `black`, `both`, `new`,
 `puzzle [THEME|daily]`, `puzzles FILE [THEME] [LOW-HIGH]`, `coach`,
-`board [NAME]`.
+`suggest`, `board [NAME]`.
+
+## The score
+
+The panel heads with the score of the position shown, white's view in
+pawns (`+0.35`, or `#3` for mate in three), who stands better (even
+under 0.30, slightly better under 1, better under 2.50, then winning),
+a bar of white's share across, the depth the score was searched to and
+the material.  The bar beside the board shows the same share.  Each
+position scored is kept, so the score and the bars follow the game as
+it is played, taken back and stepped through with `[` and `]`.  The
+engine's own search scores the positions it thinks about; with nothing
+else to do, x-chess's search scores the position shown for half a
+second, and a key stops it.  A position not yet scored shows the last
+score, said to be scoring.  A puzzle being solved is not scored.
+
+`s` or `:suggest` has the engine suggest your moves: on your move it
+finds its best, then the best of the others, three in all, each with
+its score and the line it expects, the first marked on the board as a
+hint is.  Each search has two seconds at most, or the time a move has
+if less, and a key stops it.  The suggestions are x-chess's own search,
+whichever engine you play.
 
 ## Puzzles
 

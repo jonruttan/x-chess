@@ -25,9 +25,10 @@
 (import x/core/doors io-display-to-str)
 (import chess/game game-pos)
 (import chess/player player-think player-quit!)
+(import chess/search search-best search-excluding)
 (import chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
-  tui-work!)
+  tui-work! tui-scored! tui-unscored tui-suggest-wanted tui-suggestion! tui-suggested!)
 
 (def %esc (fn (_ text) (Str8 append "\x1b" text)))
 
@@ -140,6 +141,53 @@
 
 (def %min (fn (_ a b) (if (< a b) a b)))
 
+; --- scoring while you think -------------------------------------------------------
+;
+; With nothing else to do, x-chess's own search scores the position shown
+; and, with s on, finds the moves it suggests; any key stops it, and is
+; acted on.  At the README's 600 to 1,000 nodes a second, half a second
+; scores a few plies deep.
+
+(def %assess-ms 500)
+
+(def %assess!
+  (fn (_ st screen reader p)
+    (search-best p 64 %assess-ms 0 (%analysing-poll reader) (fn (_ r) (tui-scored! st p r) (%show! st screen)))
+    (Heap collect)))
+
+; Each suggestion in turn, from those WANTED (P . MOVES) says are found;
+; each search has two seconds at most, or the time a move has if less.
+(def %suggest!
+  (fn (_ st screen reader wanted)
+    (def p (first wanted))
+    (def box (Vector of ()))
+    (def stopped (Vector of #f))
+    (def poll (fn (_) (if (%waiting? reader 0) (do (Vector set! 0 #t stopped) #t) #f)))
+    (def round
+      (fn (self k except)
+        (Vector set! 0 () box)
+        (search-excluding p except 64 (%min 2000 (tui-ms st)) 0 poll
+          (fn (_ r) (Vector set! 0 r box) (tui-suggestion! st p k r) (%show! st screen)))
+        (Heap collect)
+        (match ((Vector ref 0 stopped) ())
+               ((null? (Vector ref 0 box)) (tui-suggested! st p))
+               (#t ((fn (_ w) (if (null? w) (tui-suggested! st p) (self (+ k 1) (rest w)))) (tui-suggest-wanted st))))))
+    (round (List length (rest wanted)) (rest wanted))))
+
+; Idle: suggestions wanted are looked for, else the position shown
+; scored, else a key waited for.  A key that stopped either is acted on.
+(def %idle!
+  (fn (_ st screen reader)
+    (def wanted (tui-suggest-wanted st))
+    (def p (if (null? wanted) (tui-unscored st) ()))
+    (match
+      ((not (null? wanted)) (do (%suggest! st screen reader wanted) (%pressed! st screen reader)))
+      ((not (null? p)) (do (%assess! st screen reader p) (%pressed! st screen reader)))
+      (#t (%act! st screen reader (%wait-key st screen reader))))))
+
+(def %pressed!
+  (fn (_ st screen reader) (when (%waiting? reader 0) (%act! st screen reader (%key reader)))))
+
 ; The next key, the screen kept the terminal's size while it waits.
 (def %wait-key
   (fn (self st screen reader)
@@ -174,7 +222,7 @@
         (do (%think st screen (%analysing-poll reader) 0)
             (%act! st screen reader (%wait-key st screen reader))
             (self st screen reader)))
-      (#t (do (%act! st screen reader (%wait-key st screen reader)) (self st screen reader))))))
+      (#t (do (%idle! st screen reader) (self st screen reader))))))
 
 ; Play on the terminal with OPTS as play-run takes them: the exit status.
 (def app-run

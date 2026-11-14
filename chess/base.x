@@ -13,7 +13,7 @@
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci
   fen-start pos-from-fen pos-fen pos-key parse-int chess-roll
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft)
-(import chess/search MATE evaluate search-best best-move mate-score? mate-in)
+(import chess/search MATE evaluate search-best search-excluding best-move mate-score? mate-in)
 (import chess/mate mate-find mate-forced)
 (import chess/book polyglot-key polyglot-hex book-moves book-pick book-current book-use!)
 (import chess/tables chess-env chess-cache-dir chess-dir-make! tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe)
@@ -25,7 +25,7 @@
 (import chess/match match-run)
 (import chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
-  tui-puzzles! tui-puzzle-lines! tui-work!)
+  tui-puzzles! tui-puzzle-lines! tui-work! tui-scored! tui-unscored tui-suggest-wanted tui-suggestion! tui-suggested!)
 (import chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count
@@ -48,7 +48,7 @@
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci
   fen-start pos-from-fen pos-fen pos-key parse-int chess-roll
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft
-  MATE evaluate search-best best-move mate-score? mate-in mate-find mate-forced
+  MATE evaluate search-best search-excluding best-move mate-score? mate-in mate-find mate-forced
   polyglot-key polyglot-hex book-moves book-pick book-current book-use!
   chess-env chess-cache-dir chess-dir-make! tables-dir tables-allow-build! tables-load! tables-build! tables-loaded? tables-longest tables-men table-probe
   move-san moves-san move-parse
@@ -56,7 +56,7 @@
   game-pgn player-builtin player-start player-name player-builtin? player-think player-new-game! player-quit!
   match-run tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
-  tui-puzzles! tui-puzzle-lines! tui-work!
+  tui-puzzles! tui-puzzle-lines! tui-work! tui-scored! tui-unscored tui-suggest-wanted tui-suggestion! tui-suggested!
   puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count

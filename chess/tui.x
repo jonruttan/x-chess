@@ -10,7 +10,8 @@
 ; terminal itself (chess/app) so that a spec can press keys and read the
 ; screen back.  The board takes the left of the screen, its squares as
 ; large as the terminal allows; beside it a bar shows who stands better,
-; and to the right are the engine's thinking and the moves.  The side at
+; and to the right are the score, the engine's suggestions when asked
+; for, its thinking and the moves.  The side at
 ; the top and the side at the bottom each have a strip with their name,
 ; what they have taken and their clock.
 ;
@@ -57,7 +58,7 @@
 (def %analyse 14)
 (def %quit 15)
 (def %stats 16)     ; the line about the search in hand
-(def %eval 17)      ; the last score, white's view, or ()
+(def %eval 17)      ; the score last drawn, a row of %scores, or ()
 (def %help 18)
 (def %cursor-on 19)
 (def %hint 20)      ; a move shown as a hint, or 0
@@ -80,7 +81,11 @@
 (def %skip 37)        ; whether puzzles solved before are passed over
 (def %clock 38)       ; a function answering the milliseconds since some time
 (def %roll 39)        ; a function answering a number below its argument, drawn at random
-(def %slots 40)
+(def %scores 40)      ; the positions scored: (FEN score depth), white's view, newest first
+(def %suggest 41)     ; whether the engine suggests your moves
+(def %suggested 42)   ; its suggestions: (FEN done? rows), a row (score move sans depth), or ()
+(def %marked 43)      ; the move the board marks as a hint, or 0, set as it is drawn
+(def %slots 44)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -112,6 +117,8 @@
     (%put! st %help #f)
     (%put! st %cursor-on #f)
     (%put! st %hint 0)
+    (%put! st %marked 0)
+    (%put! st %suggest #f)
     (%put! st %coach (opt (lit coach) #f))
     (%put! st %choose #f)
     (%put! st %band 0)
@@ -173,7 +180,7 @@
                 (Str8 pad-left 6 #\space (%score-text white-score)) "  "
                 (Str8 join " " (moves-san p (List ref 5 r)))))
     (%put! st %thinking (List take 12 (pair line (%get st %thinking))))
-    (%put! st %eval white-score)
+    (tui-scored! st p r)
     (%put! st %stats
       (Str8 append "depth " (io-display-to-str (List ref 0 r)) " · "
         (io-display-to-str (List ref 2 r)) " nodes · " (%seconds (List ref 3 r))))))
@@ -181,15 +188,115 @@
 (def tui-thinking-clear!
   (fn (_ st) (%put! st %thinking ()) (%put! st %stats "")))
 
+; --- scores ------------------------------------------------------------------------
+;
+; Every position scored is kept by its FEN, white's view, so the bar and
+; the score follow the position shown: a move, a move taken back, a step
+; back through the game.  A deeper score of a position replaces a
+; shallower one; the oldest go past %score-limit.
+
+(def %score-limit 256)
+
+(def %white-view (fn (_ p s) (if (= (pos-side p) 0) s (- 0 s))))
+
+(def %score-find (fn (_ st fen) (List find (fn (_ e) (str=? (first e) fen)) (%get st %scores))))
+
+(def %score-put!
+  (fn (_ st fen score depth)
+    (def old (%score-find st fen))
+    (unless (if (null? old) #f (< depth (List ref 2 old)))
+      (%put! st %scores
+        (List take %score-limit (pair (list fen score depth) (List reject (fn (_ e) (str=? (first e) fen)) (%get st %scores))))))))
+
+; Report R of a search of P kept as P's score.  A book move's report,
+; of depth 0, has none.
+(def tui-scored!
+  (fn (_ st p r)
+    (when (< 0 (List ref 0 r)) (%score-put! st (pos-fen p) (%white-view p (List ref 1 r)) (List ref 0 r)))))
+
+; A mate score, white's view, one ply on: the mate a ply nearer.
+(def %ply-on (fn (_ s) (match ((not (mate-score? s)) s) ((< 0 s) (+ s 1)) (#t (- s 1)))))
+
+; Whether the position shown is one still to be solved.
+(def %puzzle-open? (fn (_ st) (if (null? (%get st %puzzle)) #f (not (null? (%pz st 2))))))
+
+; The position shown when it wants a score: none kept, not the game's
+; end, not a puzzle being solved.  Else ().
+(def tui-unscored
+  (fn (_ st)
+    (def p (first (%shown st)))
+    (match
+      ((%puzzle-open? st) ())
+      ((not (null? (%score-find st (pos-fen p)))) ())
+      ((if (< (%get st %review) 0) (not (null? (game-result (%get st %game)))) #f) ())
+      ((null? (legal-moves p)) ())
+      (#t p))))
+
+; --- suggestions -------------------------------------------------------------------
+;
+; With s on, the engine suggests your moves: the best, then the best of
+; the others, and so on, each found by a search that passes over the
+; moves found before (search-excluding).  The rows are kept for the
+; position they are of.
+
+(def %suggestions-wanted 3)
+
+(def %suggesting? (fn (_ st) (if (%get st %suggest) (null? (%get st %puzzle)) #f)))
+
+(def %suggested-for
+  (fn (_ st fen) ((fn (_ s) (if (null? s) () (if (str=? (first s) fen) s ()))) (%get st %suggested))))
+
+(def %suggest!
+  (fn (_ st)
+    (if (not (null? (%get st %puzzle))) (%put! st %msg "In a puzzle: i shows a hint, m the move.")
+      (do (%put! st %suggest (not (%get st %suggest)))
+          (%put! st %msg (if (%get st %suggest) "The engine suggests your moves: s stops." "Suggestions are off."))))))
+
+; When suggestions are wanted: (P . MOVES), P the game's position and
+; MOVES those suggested so far, which the next search passes over.
+; Else ().
+(def tui-suggest-wanted
+  (fn (_ st)
+    (def p (game-pos (%get st %game)))
+    (def s (if (if (%suggesting? st) (null? (%cannot-move st)) #f) (%suggested-for st (pos-fen p)) (lit no)))
+    (match
+      ((eq? s (lit no)) ())
+      ((null? s) (if (null? (legal-moves p)) () (pair p ())))
+      ((List ref 1 s) ())
+      ((not (< (List length (List ref 2 s)) %suggestions-wanted)) ())
+      (#t (pair p (List map (fn (_ row) (List ref 1 row)) (List ref 2 s)))))))
+
+; Report R of the search for P's suggestion K, counted from 0: that row
+; set, the rows after it dropped.  The first is P's score too.
+(def tui-suggestion!
+  (fn (_ st p k r)
+    (def fen (pos-fen p))
+    (def old (%suggested-for st fen))
+    (def rows (if (null? old) () (List take k (List ref 2 old))))
+    (def row (list (%white-view p (List ref 1 r)) (List ref 4 r) (moves-san p (List ref 5 r)) (List ref 0 r)))
+    (%put! st %suggested (list fen #f (List append rows (list row))))
+    (when (= k 0) (tui-scored! st p r))))
+
+; The suggestions for P are all found.
+(def tui-suggested!
+  (fn (_ st p)
+    (def s (%suggested-for st (pos-fen p)))
+    (%put! st %suggested (list (pos-fen p) #t (if (null? s) () (List ref 2 s))))))
+
 ; The engine's move M made; R, when given, is the report it came from,
-; which the coach judges your last move by.
+; which the coach judges your last move by.  When M is the move R
+; chose, R's score, a ply shallower, is the new position's.
 (def tui-engine-played!
   (fn (_ st m . more)
     (def r (if (null? more) () (first more)))
     (def g (%get st %game))
     (def said (%coach-says st r))
     (def san (move-san (game-pos g) m))
+    (def carried
+      (if (if (null? r) #f (if (< 1 (List ref 0 r)) (= (List ref 4 r) m) #f))
+        (%ply-on (%white-view (game-pos g) (List ref 1 r))) ()))
     (game-play! g m)
+    (unless (null? carried) (%score-put! st (pos-fen (game-pos g)) carried (- (List ref 0 r) 1)))
     (%put! st %hint 0)
     (%put! st %msg (Str8 append said (player-name (%get st %engine)) " plays " san))
     (%put! st %expect (%expectation st r))
@@ -746,6 +853,7 @@
       ((%is? key ":") (%put! st %command ""))
       ((%is? key "z") (%puzzle-key! st))
       ((%is? key "j") (%coach! st))
+      ((%is? key "s") (%suggest! st))
       ((%is? key "i") (%puzzle-hint! st))
       ((%is? key "m") (%puzzle-answer! st))
       (#t ()))))
@@ -822,6 +930,7 @@
                 (%put! st %engine pl)
                 (%put! st %msg (Str8 append "The engine is " (player-name pl) "."))))))
       ((str=? cmd "coach") (%coach! st))
+      ((str=? cmd "suggest") (%suggest! st))
       ((str=? cmd "board") (%board! st arg))
       ((str=? cmd "puzzle")
         (match ((str=? arg "") (%put! st %choose #t)) ((str=? arg "daily") (%ask-daily! st)) (#t (%start-chosen! st arg))))
@@ -947,7 +1056,7 @@
 (def %mark
   (fn (_ st p sq last)
     (def pc (pos-piece p sq))
-    (def hint (%get st %hint))
+    (def hint (%get st %marked))
     (match
       ((< 0 (%promo-kind-at st sq)) (lit sel))
       ((if (= (piece-kind pc) KING) (if (= (piece-colour pc) (pos-side p)) (in-check? p) #f) #f) (lit check))
@@ -984,6 +1093,7 @@
     (def last (rest shown))
     (def targets (if (if (< (%get st %sel) 0) #t (not (null? (%get st %promo)))) ()
                    (List map move-to (%moves-from st (%get st %sel)))))
+    (%put! st %marked (%hint-shown st))
     (List for-each
       (fn (_ i)
         (def r (int/ i 8))
@@ -1023,25 +1133,91 @@
           (Style make (list (lit dim)) () ())))
       (List range 0 8))))
 
-; The bar beside the board: white's share from the bottom (as the board
-; is seen), from the last score: an even game half and half.
+; The hint the board marks: one asked for, else the engine's first
+; suggestion for the game's position, else 0.
+(def %hint-shown
+  (fn (_ st)
+    (def first-row
+      (fn (_ s) (if (null? s) 0 (if (null? (List ref 2 s)) 0 (List ref 1 (first (List ref 2 s)))))))
+    (match ((< 0 (%get st %hint)) (%get st %hint))
+           ((not (%suggesting? st)) 0)
+           ((< -1 (%get st %review)) 0)
+           (#t (first-row (%suggested-for st (pos-fen (game-pos (%get st %game)))))))))
+
+(def %abs (fn (_ n) (if (< n 0) (- 0 n) n)))
+
+; White's share of the bar, in thousandths, for score S (white's view,
+; or () for none): an even game half and half, a mate all of it.
+(def %share
+  (fn (_ s)
+    (match ((null? s) 500)
+           ((mate-score? s) (if (< 0 s) 1000 0))
+           (#t (%max 30 (%min 970 (+ 500 (int/ (* s 1000) (+ 800 (%abs s))))))))))
+
+(def %result-share (fn (_ r) (match ((str=? r "1-0") 1000) ((str=? r "0-1") 0) (#t 500))))
+
+; Who stands better by score S, white's view: under 0.30 even, under
+; 1.00 slightly better, under 2.50 better, from there winning.
+(def %standing
+  (fn (_ s)
+    (def side (if (< 0 s) "White" "Black"))
+    (match ((mate-score? s) (Str8 append side " mates in " (io-display-to-str (%abs (mate-in s)))))
+           ((< (%abs s) 30) "Even")
+           ((< (%abs s) 100) (Str8 append side " is slightly better"))
+           ((< (%abs s) 250) (Str8 append side " is better"))
+           (#t (Str8 append side " is winning")))))
+
+; The material P's sides have, in pawns: who leads, by how much.
+(def %material-text
+  (fn (_ p)
+    (def counts (%counts p))
+    (def worth
+      (fn (_ colour) (List fold (fn (_ n k) (+ n (* (List ref k %material) (Vector ref (+ colour k) counts)))) 0 (list 1 2 3 4 5))))
+    (def lead (- (worth 0) (worth 8)))
+    (match ((= lead 0) "material even")
+           ((< 0 lead) (Str8 append "material White +" (io-display-to-str lead)))
+           (#t (Str8 append "material Black +" (io-display-to-str (- 0 lead)))))))
+
+; What is said of position P, shown: (SHARE SCORE STANDING DETAIL), the
+; bar's white share, the score as text, who stands better, and the
+; depth and material.  A position with no score yet is shown with the
+; last one drawn, said to be scoring; a puzzle being solved is not
+; scored, for its score would give it away.
+(def %assessment
+  (fn (_ st p)
+    (def over (if (< (%get st %review) 0) (game-result (%get st %game)) ()))
+    (def open (%puzzle-open? st))
+    (def found (if open () (%score-find st (pos-fen p))))
+    (unless (null? found) (%put! st %eval found))
+    (def e (match (open ()) ((null? found) (%get st %eval)) (#t found)))
+    (def material (%material-text p))
+    (match
+      ((not (null? over))
+        (list (%result-share (first over)) (first over) (Str8 append (%result-text (first over)) " by " (rest over)) material))
+      (open (list 500 "" "not shown in a puzzle" material))
+      ((null? e) (list 500 "" "not scored yet" material))
+      (#t (list (%share (List ref 1 e)) (%score-text (List ref 1 e)) (%standing (List ref 1 e))
+            (Str8 append (if (null? found) "scoring" (Str8 append "depth " (io-display-to-str (List ref 2 e)))) " · " material))))))
+
+; A cell of a bar at ROW and COL, white's or black's.
+(def %bar-cell!
+  (fn (_ st screen row col white)
+    (Screen put screen row col
+      (if (if (%ascii? st) (not white) #f) ":" " ")
+      (Style make (if (if (%ascii? st) white #f) (list (lit reverse)) ()) () (%colour st (if white 15 16))))))
+
+; The bar beside the board: white's SHARE from the bottom, as the board
+; is seen.
 (def %draw-bar!
-  (fn (_ st screen)
+  (fn (_ st screen share)
     (def h (* 8 (Vector ref 0 %layout-v)))
     (def x (+ %left (* 8 (Vector ref 1 %layout-v)) 1))
-    (def s (%get st %eval))
-    (def share
-      (match ((null? s) 500)
-             ((mate-score? s) (if (< 0 s) 1000 0))
-             (#t (%max 30 (%min 970 (+ 500 (int/ (* s 1000) (+ 800 (if (< s 0) (- 0 s) s)))))))))
     (def white-cells (int/ (+ (* share h) 500) 1000))
     (List for-each
       (fn (_ k)
         ; K counts from the bottom
-        (def white (if (= (%get st %view) 0) (< k white-cells) (< (- h 1 k) white-cells)))
-        (Screen put screen (- (+ %top h) 1 k) x
-          (if (if (%ascii? st) (not white) #f) ":" " ")
-          (Style make (if (if (%ascii? st) white #f) (list (lit reverse)) ()) () (%colour st (if white 15 16)))))
+        (%bar-cell! st screen (- (+ %top h) 1 k) x
+          (if (= (%get st %view) 0) (< k white-cells) (< (- h 1 k) white-cells))))
       (List range 0 h))))
 
 ; --- the panel ---------------------------------------------------------------------
@@ -1156,22 +1332,57 @@
       ((%get st %analyse) (Str8 append "Analysing with " (player-name (%get st %engine))))
       (#t (Str8 append "Playing " (player-name (%get st %engine))
             " · " (io-display-to-str (int/ (%get st %ms) 1000)) " s a move"
-            (if (%get st %coach) " · coached" ""))))))
+            (if (%get st %coach) " · coached" "") (if (%get st %suggest) " · suggesting" ""))))))
+
+; The score at row Y: the heading with who stands better, the score and
+; a bar of white's share across, then the depth and material.  A is the
+; position's %assessment.
+(def %draw-score!
+  (fn (_ st screen x y a)
+    (%heading! screen y x "Score" (List ref 2 a))
+    (Screen put screen (+ y 1) x (List ref 1 a) (Style make (list (lit bold)) () ()))
+    (def w (%max 8 (%min 24 (- (Screen cols screen) x 8))))
+    (def white-cells (int/ (+ (* (first a) w) 500) 1000))
+    (List for-each (fn (_ k) (%bar-cell! st screen (+ y 1) (+ x 7 k) (< k white-cells))) (List range 0 w))
+    (Screen put screen (+ y 2) x (%plain st (List ref 3 a)) (Style make (list (lit dim)) () ()))))
+
+; The engine's suggestions from row Y: a row each, the move, its score
+; (white's view) and the line it expects.  The row after them.
+(def %draw-suggested!
+  (fn (_ st screen x y)
+    (def s (%suggested-for st (pos-fen (game-pos (%get st %game)))))
+    (def rows (if (null? s) () (List ref 2 s)))
+    (%heading! screen y x "Suggested"
+      (match ((not (null? (%cannot-move st))) "on your move")
+             ((if (null? s) #t (not (List ref 1 s))) "looking")
+             (#t "")))
+    (List for-each
+      (fn (_ i)
+        (def row (List ref i rows))
+        (def sans (List ref 2 row))
+        (Screen put screen (+ y 1 i) x
+          (Str8 append (io-display-to-str (+ i 1)) ". " (Str8 pad-right 7 #\space (if (null? sans) "" (first sans)))
+            (Str8 pad-left 6 #\space (%score-text (first row))) "  " (Str8 join " " (if (null? sans) () (rest sans))))
+          (Style make (if (= i 0) (list (lit bold)) ()) () ())))
+      (List range 0 (List length rows)))
+    (+ y 2 %suggestions-wanted)))
 
 (def %draw-panel!
-  (fn (_ st screen)
+  (fn (_ st screen a)
     (def x (%panel-x st))
     (def rows (Screen rows screen))
     (def bottom (- rows 3))
     (Screen put screen 0 x (%plain st (%panel-title st)) (Style make (list (lit bold)) () ()))
-    (def think-rows (if (%get st %show-think) (%min 6 (%max 2 (int/ (- bottom 2) 3))) 0))
+    (%draw-score! st screen x 2 a)
+    (def t (if (%suggesting? st) (%draw-suggested! st screen x 6) 6))
+    (def think-rows (if (%get st %show-think) (%min 6 (%max 2 (int/ (- bottom t) 3))) 0))
     (when (%get st %show-think)
-      (%heading! screen 2 x "Thinking" (%plain st (%get st %stats)))
+      (%heading! screen t x "Thinking" (%plain st (%get st %stats)))
       (List for-each
-        (fn (_ i) (Screen put screen (+ 3 i) x (List ref i (%get st %thinking))
+        (fn (_ i) (Screen put screen (+ t 1 i) x (List ref i (%get st %thinking))
                     (Style make (if (= i 0) () (list (lit dim))) () ())))
         (List range 0 (%min think-rows (List length (%get st %thinking))))))
-    (def mv-top (+ 3 think-rows (if (%get st %show-think) 1 0)))
+    (def mv-top (if (%get st %show-think) (+ t 2 think-rows) t))
     (%heading! screen mv-top x "Moves" "")
     (def lines (%move-rows st))
     (def room (%max 1 (- bottom mv-top)))
@@ -1202,13 +1413,14 @@
         "i      hint               m  the engine moves now"
         "l      analyse            t  show or hide thinking"
         "z      puzzles            j  the coach, on or off"
+        "s      suggested moves, on or off"
         "[ ]    back, forward      Home End  first, last"
         "p      letters or figures q  quit"
         ""
         ":fen FEN   :time S   :depth N   :engine CMD"
         ":save FILE   :white   :black   :both   :new"
         ":puzzle [THEME]   :puzzles FILE [THEME] [LOW-HIGH]"
-        ":coach   :board [wood|green|blue|grey|ascii]"
+        ":coach   :suggest   :board [wood|green|blue|grey|ascii]"
         ""
         "Any key closes this."))
 
@@ -1245,13 +1457,14 @@
         (Vector set! 1 (List ref 1 lay) %layout-v)
         (def h (first lay))
         (def p (first (%shown st)))
+        (def a (%assessment st p))
         (%draw-board! st screen)
-        (%draw-bar! st screen)
+        (%draw-bar! st screen (first a))
         (def over (game-result (%get st %game)))
         (def start (%counts (%start-pos st)))
         (%strip! st screen (+ %top (* 8 h) 1) (%get st %view) p over start)
         (%strip! st screen 0 (- 8 (%get st %view)) p over start)
-        (%draw-panel! st screen)
+        (%draw-panel! st screen a)
         (Screen put screen (- rows 2) 0 (%get st %msg) (Style make (list (lit bold)) () ()))
         (Screen put screen (- rows 1) 0
           (%plain st
@@ -1296,4 +1509,5 @@
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?
-  tui-draw! tui-puzzles! tui-puzzle-lines! tui-work! tui-theme tui-theme-names)
+  tui-draw! tui-puzzles! tui-puzzle-lines! tui-work! tui-theme tui-theme-names tui-scored! tui-unscored tui-suggest-wanted
+  tui-suggestion! tui-suggested!)
