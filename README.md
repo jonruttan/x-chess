@@ -6,7 +6,7 @@ Universal Chess Interface for chess GUIs and other engines.
 
     x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]
                   [--board wood|green|blue|grey|ascii] [--book FILE|--no-book]
-    x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH]
+    x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH] [--unsolved] [--random|--one]
     x -l chess -- --uci
     x -l chess -- --perft N [--fen FEN]
     x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]
@@ -80,6 +80,8 @@ the choice, easiest first:
     a        all of them
     x        the 21 made for x-chess, unrated
     l        lichess's puzzle of the day
+    o        easiest first, in a random order, or one at random
+    u        those solved set again, or passed over
     < >      another rating band
 
 `--puzzle` sets the shipped ones on the board, `--puzzles FILE` or
@@ -89,7 +91,12 @@ the puzzles are asked for).  Puzzles are chosen by the database's theme
 names, `--theme mateIn4`, `mate` (any mate), `fork`, `pin`, `crushing`,
 `endgame` and the rest, and by rating, `--rating 1500-1800` (`1500-` or
 `-1800` for one bound).  `:puzzle THEME` and `:puzzles FILE THEME
-LOW-HIGH` do the same on the board.
+LOW-HIGH` do the same on the board.  `--unsolved` passes over the
+puzzles solved before, `--random` sets the puzzles in a random order,
+and `--one` sets one of them, drawn at random; `u` and `o` in the
+choice do the same.  A random order holds the lines of the puzzles
+chosen in memory, so a theme or rating narrows a large file first; one
+at random holds only the one.
 
 `l`, or `:puzzle daily`, asks lichess for its puzzle of the day
 (<https://lichess.org/api/puzzle/daily>, no account needed).  Each one
@@ -114,11 +121,12 @@ for you, `z` goes on to the next puzzle and `n` leaves the puzzles for
 a new game.  A puzzle counts as solved when it was solved with no wrong
 move, hint or move shown.
 
-Each rated puzzle finished is recorded, solved or missed, a line in
-`$X_CHESS_RECORD`, else `solved` in `$XDG_CACHE_HOME/x-chess` or
-`~/.cache/x-chess`.  A puzzle once solved is passed over after that,
-and the choice shows, beside each theme, how many of those finished in
-its band were solved.
+Each puzzle finished is recorded, solved or missed, with the time it
+took, a line in `$X_CHESS_RECORD`, else `solved` in
+`$XDG_CACHE_HOME/x-chess` or `~/.cache/x-chess`.  A puzzle played
+before says so when it is set, with its fastest solve, and a solve says
+its time and the fastest before it.  The choice shows, beside each
+theme, how many of the rated puzzles finished in its band were solved.
 
 ## The coach
 

@@ -8,7 +8,7 @@
 ;
 ;   x -l chess -- [--white|--black|--both] [--fen FEN] [--time S] [--depth N] [--think] [--engine CMD]
 ;                  [--book FILE|--no-book]
-;   x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH]
+;   x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH] [--unsolved] [--random|--one]
 ;   x -l chess -- --uci
 ;   x -l chess -- --perft N [--fen FEN]
 ;   x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time S] [--depth N]
@@ -33,7 +33,7 @@
 (import chess/match match-run)
 (import chess/app app-run)
 (import chess/tui tui-theme tui-theme-names)
-(import chess/puzzle puzzle-set puzzle-list-source puzzle-file-source puzzle-filter puzzle-range puzzle-library)
+(import chess/puzzle puzzle-set puzzle-list-source puzzle-file-lines puzzle-filter puzzle-range puzzle-library)
 (import x/sys/date)
 (import chess/book book-use!)
 (import chess/tables tables-dir tables-allow-build! tables-build!)
@@ -42,7 +42,7 @@
   (Str8 join "\n"
     (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]"
           "                         [--board wood|green|blue|grey|ascii] [--book FILE|--no-book]"
-          "       x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH]"
+          "       x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH] [--unsolved] [--random|--one]"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
           "       x -l chess -- --match GAMES [--engine CMD [--engine CMD]] [--time SECONDS] [--depth N] [--fen FEN]"
@@ -56,7 +56,8 @@
           "--puzzle sets the board's puzzles from the 2,342 x-chess ships, cut from the lichess"
           "puzzle database, easiest first; --puzzles FILE those of a CSV of that database."
           "--theme takes those with a theme of the database's (mateIn4, mate, fork, pin, ...),"
-          "--rating those rated in a range."
+          "--rating those rated in a range.  --unsolved passes over those solved before,"
+          "--random sets them in a random order, --one sets one of them at random."
           "Fed lines, it speaks UCI when the first is `uci`, else plays them as moves."
           "--engine plays a UCI engine, CMD its program and arguments, in place of x-chess."
           "--match plays games between two engines (x-chess the first unless two are named),"
@@ -77,6 +78,9 @@
         (pair "--letters" (pair (lit letters) #t))
         (pair "--coach" (pair (lit coach) #t))
         (pair "--puzzle" (pair (lit puzzle) #t))
+        (pair "--unsolved" (pair (lit skip) #t))
+        (pair "--random" (pair (lit order) (lit random)))
+        (pair "--one" (pair (lit order) (lit one)))
         (pair "--help" (pair (lit help) #t))
         (pair "-h" (pair (lit help) #t))
         (pair "--version" (pair (lit version) #t))
@@ -206,18 +210,27 @@
       (if (null? (%opt opts (lit board))) () (list (pair (lit board) (%opt opts (lit board)))))
       (if (null? (%opt opts (lit coach))) () (list (pair (lit coach) #t))))))
 
-; The puzzles OPTS ask for, those of --theme and --rating: --puzzles
-; FILE's, else the library's, else (--puzzle alone, when the bundle does
-; not know where it is) the built-in ones; a source, or ().  Raises when
-; the file cannot be opened.
+; The puzzles OPTS ask for, those of --theme and --rating: the lines of
+; --puzzles FILE that hold them, else the library's, else (--puzzle
+; alone, when the bundle does not know where it is) the built-in ones;
+; the option the board takes them as, (puzzle-lines . SOURCE) or
+; (puzzles . SOURCE), or ().  Raises when the file cannot be opened.
 (def %puzzles
   (fn (_ opts)
     (def theme (if (null? (%opt opts (lit theme))) "" (%opt opts (lit theme))))
     (def range (if (null? (%opt opts (lit rating))) (pair 0 0) (%opt opts (lit rating))))
     (def file (if (null? (%opt opts (lit puzzles))) (puzzle-library) (%opt opts (lit puzzles))))
     (match ((if (null? (%opt opts (lit puzzles))) (null? (%opt opts (lit puzzle))) #f) ())
-           ((not (null? file)) (puzzle-file-source file theme (first range) (rest range)))
-           (#t (puzzle-filter (puzzle-list-source (puzzle-set)) theme (first range) (rest range))))))
+           ((not (null? file)) (pair (lit puzzle-lines) (puzzle-file-lines file theme (first range) (rest range))))
+           (#t (pair (lit puzzles) (puzzle-filter (puzzle-list-source (puzzle-set)) theme (first range) (rest range)))))))
+
+; The options the board takes from OPTS for the puzzles it sets: --unsolved
+; and the order.
+(def %puzzle-opts
+  (fn (_ opts)
+    (List append
+      (if (null? (%opt opts (lit skip))) () (list (pair (lit skip) #t)))
+      (if (null? (%opt opts (lit order))) () (list (pair (lit order) (%opt opts (lit order))))))))
 
 ; The --engine commands in OPTS, in the order given.
 (def %engines
@@ -236,7 +249,9 @@
           (when (if (null? puzzles) #f (not board)) (Err raise (lit usage) "puzzles are solved on the board, on a terminal" ()))
           (def pl (player-start (if (null? engines) () (first engines))))
           ; the board has no line to say the endgame tables are building on
-          (if board (do (tables-allow-build! #f) (app-run (List append (list (pair (lit engine) pl) (pair (lit puzzles) puzzles)) (%game-opts opts))))
+          (if board (do (tables-allow-build! #f)
+                        (app-run (List append (list (pair (lit engine) pl)) (if (null? puzzles) () (list puzzles))
+                                   (%puzzle-opts opts) (%game-opts opts))))
             (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line))))))
 
 (def %session

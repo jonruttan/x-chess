@@ -79,3 +79,11 @@
 (def spec-keys! (fn (_ st keys) (List for-each (fn (_ k) (tui-key! st k)) keys)))
 
 (def spec-moves (fn (_ st) (List map move-uci (game-moves (tui-game st)))))
+
+; A clock for the board's (clock) option: each read answers the next of
+; TIMES, in milliseconds, and the last once they run out, so a puzzle's
+; solve time is the same every run.
+(def spec-clock
+  (fn (_ times)
+    (def left times)
+    (fn (_) ((fn (_ t) (unless (null? (rest left)) (set! left (rest left))) t) (first left)))))

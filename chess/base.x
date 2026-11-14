@@ -11,7 +11,7 @@
   piece-kind piece-colour piece-letter
   sq-file sq-rank sq-make sq-name sq-parse
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci
-  fen-start pos-from-fen pos-fen pos-key parse-int
+  fen-start pos-from-fen pos-fen pos-key parse-int chess-roll
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft)
 (import chess/search MATE evaluate search-best best-move mate-score? mate-in)
 (import chess/mate mate-find mate-forced)
@@ -25,11 +25,12 @@
 (import chess/match match-run)
 (import chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
-  tui-puzzles! tui-work!)
+  tui-puzzles! tui-puzzle-lines! tui-work!)
 (import chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
-  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count)
-(import chess/record record-path record-load record-add! record-solved? record-unsolved record-score)
+  puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count
+  puzzle-file-lines puzzle-line-id puzzle-parsed puzzle-shuffled puzzle-one)
+(import chess/record record-path record-load record-add! record-solved? record-played? record-best record-unsolved record-score)
 (import chess/daily daily-url daily-path daily-fetch daily-from-text daily-get)
 (import chess/app app-run)
 (import chess/show show-board)
@@ -45,7 +46,7 @@
   piece-kind piece-colour piece-letter
   sq-file sq-rank sq-make sq-name sq-parse
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci
-  fen-start pos-from-fen pos-fen pos-key parse-int
+  fen-start pos-from-fen pos-fen pos-key parse-int chess-roll
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft
   MATE evaluate search-best best-move mate-score? mate-in mate-find mate-forced
   polyglot-key polyglot-hex book-moves book-pick book-current book-use!
@@ -55,11 +56,12 @@
   game-pgn player-builtin player-start player-name player-builtin? player-think player-new-game! player-quit!
   match-run tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
-  tui-puzzles! tui-work!
+  tui-puzzles! tui-puzzle-lines! tui-work!
   puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count
-  record-path record-load record-add! record-solved? record-unsolved record-score
+  puzzle-file-lines puzzle-line-id puzzle-parsed puzzle-shuffled puzzle-one
+  record-path record-load record-add! record-solved? record-played? record-best record-unsolved record-score
   daily-url daily-path daily-fetch daily-from-text daily-get
   app-run
   show-board chess-version uci-run uci-think-ms play-run chess-main chess-options

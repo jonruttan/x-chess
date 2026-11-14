@@ -36,6 +36,15 @@ chess/cli: the options, and what is answered without a game.
 ---
     ((('board . "ascii")) (('error . "--board takes one of wood, green, blue, grey, ascii")) (('error . "--board takes one of wood, green, blue, grey, ascii")))
 
+### --unsolved passes over the solved, --random sets the puzzles in a random order, --one one of them
+
+```chess
+(write (list (chess-options (list "--puzzle" "--unsolved" "--random") ())
+             (chess-options (list "--puzzles" "p.csv" "--one") ())))
+```
+---
+    ((('order . 'random) ('skip . #t) ('puzzle . #t)) (('order . 'one) ('puzzles . "p.csv")))
+
 ### a book that is not there is refused before play
 
 ```chess

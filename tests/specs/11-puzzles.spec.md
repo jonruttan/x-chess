@@ -244,7 +244,7 @@ Hint: Ra8#
 (def s (Screen make 30 100))
 (spec-keys! st (list "z"))
 (spec-draw! st s)
-(display (spec-rows s (List range 4 25)))
+(display (spec-rows s (List range 4 26)))
 (newline)
 (spec-keys! st (list ">" ">"))
 (spec-draw! st s)
@@ -260,29 +260,31 @@ Hint: Ra8#
 ```
 ---
 ```output
-7    ♟      ♟      ♟    Puzzles, any rating
-
+                        Puzzles, any rating
+7    ♟      ♟      ♟
                         1   Mate in one          182
-6                       2   Mate in two          200
-                        3   Mate in three        200
+                        2   Mate in two          200
+6                       3   Mate in three        200
                         4   Mate in four         200
-5                       5   Mate in five         160
-                        f   Forks                258
+                        5   Mate in five         160
+5                       f   Forks                258
                         p   Pins                 272
-4                       s   Skewers              207
-                        d   Discovered attacks   287
+                        s   Skewers              207
+4                       d   Discovered attacks   287
                         t   Trapped pieces       204
-3                       h   Pieces left hanging  216
-                        e   Endgames             977
+                        h   Pieces left hanging  216
+3                       e   Endgames             977
                         a   All of them         2342
-2    ♟      ♟      ♟    x   x-chess's own, unrated
-                        l   lichess's puzzle of the day
+                        x   x-chess's own, unrated
+2    ♟      ♟      ♟    l   lichess's puzzle of the day
 
-1    ♜      ♞      ♝    < >  another rating · any other key: back to the game
+                        o   easiest first
+1    ♜      ♞      ♝    u   those solved set again
 
-
-7    ♟      ♟      ♟    Puzzles, rated 1000 to 1399
-
+     a      b      c    < >  another rating · any other key: back to the game
+                        Puzzles, rated 1000 to 1399
+7    ♟      ♟      ♟
+                        1   Mate in one           40
    ●  x-chess (Black)   +2                                    Puzzle 1 · 0 of 1 solved · rated 1227
 Mate in 4: White to move.
 A new game.
@@ -353,3 +355,67 @@ The coach is off.
 ```
 ---
     (((1500 . 1800) "fork" "p.csv" #t #t) ("--puzzles takes a file") ("--rating takes a range: LOW-HIGH, LOW- or -HIGH"))
+
+## the order
+
+### a random order and one at random, by the roll: Fisher-Yates, and one kept as each is read
+
+```chess
+(def src (fn (_) (puzzle-list-source (list "a" "b" "c" "d"))))
+(def drain (fn (self next) ((fn (_ x) (if (null? x) () (pair x (self next)))) (next))))
+(def low (fn (_ n) 0))
+(def high (fn (_ n) (- n 1)))
+(def shuffled (drain (puzzle-shuffled (src) chess-roll)))
+(write (list (drain (puzzle-shuffled (src) low)) (drain (puzzle-shuffled (src) high))
+             (drain (puzzle-one (src) low)) (drain (puzzle-one (src) high))
+             (drain (puzzle-shuffled (puzzle-list-source ()) low)) (drain (puzzle-one (puzzle-list-source ()) low))
+             (List length shuffled)
+             (List map (fn (_ x) (not (null? (List find (fn (_ y) (str=? x y)) shuffled)))) (list "a" "b" "c" "d"))
+             (List length (drain (puzzle-one (src) chess-roll)))))
+```
+---
+    (("b" "c" "d" "a") ("a" "b" "c" "d") ("d") ("a") () () 4 (#t #t #t #t) 1)
+
+### on the board: the puzzles set in a random order
+
+```chess
+(def st (tui-make (list (pair (lit order) (lit random)) (pair (lit roll) (fn (_ n) 0)) (pair (lit record) "/dev/null")
+                        (pair (lit puzzles) (puzzle-list-source (List take 4 (puzzle-set)))))))
+(def s (Screen make 30 100))
+(def says (fn (_ keys) (spec-keys! st keys) (spec-draw! st s) (spec-rows s (list 28))))
+(List for-each (fn (_ k) (display (says k)) (newline)) (list () (list "z") (list "z") (list "z") (list "z")))
+```
+---
+```output
+Mate in 1: Smothered: White to move.
+Mate in 1: Too soon for the knight: White to move.
+Mate in 1: The king helps: White to move.
+Mate in 1: The back rank: White to move.
+No more puzzles: 0 of 4 solved.
+```
+
+### o in the choice steps through the orders, and one at random sets a single puzzle
+
+```chess
+(def st (tui-make (list (pair (lit roll) (fn (_ n) 0)) (pair (lit record) "/dev/null"))))
+(def s (Screen make 30 100))
+(def row (fn (_ keys r) (spec-keys! st keys) (spec-draw! st s) (spec-rows s (list r))))
+(display (row (list "z") 22)) (newline)
+(display (row (list "o") 22)) (newline)
+(display (row (list "o") 22)) (newline)
+(display (row (list "2") 0)) (newline)
+(display (row (list "z") 28)) (newline)
+(display (row (list "z" "o") 22)) (newline)
+(def drain (fn (self next) ((fn (_ x) (if (null? x) () (pair x (self next)))) (next))))
+(write (puzzle-rating (puzzle-from-csv (List last (drain (puzzle-file-lines (puzzle-library) "mateIn2" 0 0))))))
+```
+---
+```output
+                        o   easiest first
+                        o   in a random order
+                        o   one at random
+   ○  x-chess (White)   +8                                    Puzzle 1 · 0 of 1 solved · rated 2421
+No more puzzles: 0 of 1 solved.
+                        o   easiest first
+2421
+```

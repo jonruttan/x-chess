@@ -54,7 +54,8 @@ out; no spec reaches the network.
 (def path (rest t))
 (def r (File temp "/tmp/x-chess-record-"))
 (File close (first r))
-(def st (tui-make (list (pair (lit daily) (pair path (fn (_) text))) (pair (lit record) (rest r)))))
+(def st (tui-make (list (pair (lit daily) (pair path (fn (_) text))) (pair (lit record) (rest r)) (pair (lit skip) #t)
+                        (pair (lit clock) (spec-clock (list 0 7300))))))
 (def s (Screen make 30 100))
 (spec-keys! st (list "z" "l"))
 (spec-draw! st s)
@@ -85,6 +86,6 @@ Asking lichess for the puzzle of the day...
    ●  x-chess (Black)   +5                                    Puzzle 1 · 0 of 1 solved · rated 1868
 A sacrifice: the lichess puzzle of the day: White to move.
 Right.  Black replies Bxg7: your move.
-Right.  Solved (1 of 1 solved): z for the next puzzle.
+Right.  Solved in 7.3 s (1 of 1 solved): z for the next puzzle.
 You have solved today's puzzle, u52YY, rated 1868.
 ```
