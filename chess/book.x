@@ -25,11 +25,10 @@
 
 (import x/sys/gc)
 (import x/sys/file)
-(import x/num/random)
 (import x/core/doors int+ int- int* int/ int< int= int& int| int<< int>> obj-ref obj-set!
   str-make str-byte-ref str-byte-len str-byte-sub)
 (import chess/board fen-start pos-from-fen pos-piece pos-side pos-castle pos-ep pos-key
-  sq-parse move-from move-to move-promo gen-moves make! unmake!)
+  sq-parse move-from move-to move-promo gen-moves make! unmake! chess-roll)
 
 (def %xor (prim-ref (lit int) (lit ^)))
 
@@ -522,15 +521,6 @@
            ((eq? book (lit builtin)) (%builtin-moves p))
            (#t (%polyglot-moves book p)))))
 
-(def %random ())
-
-(def %roll
-  (fn (_ n)
-    (when (null? %random)
-      (def tod (Sys time-of-day))
-      (set! %random (Random sw (int+ (int* (int& (first tod) 65535) 1000003) (rest tod)))))
-    (%random int n)))
-
 ; A move of BOOK's for P drawn by weight, or () when it has none.  ROLL,
 ; when given, answers a number below its argument; else the draw is
 ; random.
@@ -540,7 +530,7 @@
     (def total (List fold (fn (_ a e) (int+ a (rest e))) 0 moves))
     (def walk (fn (self ms r) (if (int< r (rest (first ms))) (first (first ms)) (self (rest ms) (int- r (rest (first ms)))))))
     (if (null? moves) ()
-      (walk moves (if (null? roll) (%roll total) ((first roll) total))))))
+      (walk moves (if (null? roll) (chess-roll total) ((first roll) total))))))
 
 ; The book the engine plays from: builtin, a Polyglot path, or ().
 (def %book (lit builtin))

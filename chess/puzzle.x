@@ -101,38 +101,40 @@
 
 ; --- the set ------------------------------------------------------------------------
 ;
-; Each entry: the FEN, the solution, the name, the themes; easiest first.
+; Each entry: the FEN, the solution, the name, the themes, the ID; easiest
+; first.  An ID is xc and two digits, never the five letters of a lichess
+; puzzle's, and stays the puzzle's when others are put among them.
 ; tests/specs/11-puzzles.spec.md checks that each mate mates in the moves
 ; its theme says and no fewer, and that each crushing line wins material.
 
 (def %set
   (list
-    (list "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1" "a1a8" "The back rank" "mate mateIn1 backRankMate")
-    (list "6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1" "g5f7" "Smothered" "mate mateIn1 smotheredMate")
-    (list "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4" "h5f7" "Too soon for the knight" "mate mateIn1 opening")
-    (list "k7/8/1K6/8/8/8/8/7Q w - - 0 1" "h1h8" "The king helps" "mate mateIn1 endgame")
-    (list "6k1/5ppp/8/8/8/8/Q4PPP/1R4K1 w - - 0 1" "b1b8" "Back rank again" "mate mateIn1 backRankMate")
-    (list "4k3/8/4K3/8/8/8/8/R7 w - - 0 1" "a1a8" "The opposition" "mate mateIn1 endgame")
-    (list "3k4/8/3K4/8/8/8/8/5Q2 w - - 0 1" "f1f8" "Queen to the edge" "mate mateIn1 endgame")
-    (list "6k1/5ppp/r7/8/8/8/5PPP/3RR1K1 w - - 0 1" "d1d8" "Too far to block" "mate mateIn1 backRankMate")
-    (list "7k/8/8/8/8/8/R7/1R5K w - - 0 1" "a2a7 h8g8 b1b8" "The ladder" "mate mateIn2 endgame")
-    (list "r1b2k1r/ppp1bppp/8/1B1Q4/5q2/2P5/PPP2PPP/R3R1K1 w - - 1 1" "d5d8 e7d8 e1e8" "The queen as bait" "mate mateIn2 backRankMate sacrifice")
-    (list "5r1k/6pp/7N/8/8/1Q6/8/6K1 w - - 0 1" "b3g8 f8g8 h6f7" "Philidor's smothered mate" "mate mateIn2 smotheredMate sacrifice")
-    (list "rn1qkbnr/ppp2ppp/3p4/4N3/2B1P3/2N5/PPPP1PPP/R1BbK2R w KQkq - 0 6" "c4f7 e8e7 c3d5" "Légal's trap" "mate mateIn2 opening sacrifice")
-    (list "k7/8/2K5/8/8/8/8/7R w - - 0 1" "c6c7 a8a7 h1a1" "A waiting move" "mate mateIn2 endgame")
-    (list "4k3/8/3K4/8/8/8/8/7R w - - 0 1" "h1f1 e8d8 f1f8" "Take the square" "mate mateIn2 endgame")
-    (list "7k/8/5K2/8/8/8/8/1Q6 w - - 0 1" "f6g6 h8g8 b1b8" "The king steps up" "mate mateIn2 endgame")
-    (list "r5k1/5Npp/8/8/8/1Q6/8/6K1 w - - 0 1" "f7h6 g8h8 b3g8 a8g8 h6f7" "Philidor's legacy" "mate mateIn3 smotheredMate doubleCheck sacrifice")
-    (list "q3k3/8/8/3N4/8/8/5PPP/6K1 w - - 0 1" "d5c7 e8d7 c7a8" "The king and the queen" "crushing fork")
-    (list "r5k1/6pp/8/8/8/8/5PPP/3Q2K1 w - - 0 1" "d1d5 g8f8 d5a8" "Check, then the rook" "crushing fork")
-    (list "q7/8/8/3k4/8/8/PP6/4KB2 w - - 0 1" "f1g2 d5e6 g2a8" "Through the king" "crushing skewer")
-    (list "3k4/1p6/8/8/3q4/8/1P6/R3K3 w - - 0 1" "a1d1 d4d1 e1d1" "The queen cannot move" "crushing pin")
-    (list "4k3/8/8/4B3/8/8/4R2K/q7 w - - 0 1" "e5a1" "Out of the way, with check" "crushing discoveredAttack")))
+    (list "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1" "a1a8" "The back rank" "mate mateIn1 backRankMate" "xc01")
+    (list "6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1" "g5f7" "Smothered" "mate mateIn1 smotheredMate" "xc02")
+    (list "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4" "h5f7" "Too soon for the knight" "mate mateIn1 opening" "xc03")
+    (list "k7/8/1K6/8/8/8/8/7Q w - - 0 1" "h1h8" "The king helps" "mate mateIn1 endgame" "xc04")
+    (list "6k1/5ppp/8/8/8/8/Q4PPP/1R4K1 w - - 0 1" "b1b8" "Back rank again" "mate mateIn1 backRankMate" "xc05")
+    (list "4k3/8/4K3/8/8/8/8/R7 w - - 0 1" "a1a8" "The opposition" "mate mateIn1 endgame" "xc06")
+    (list "3k4/8/3K4/8/8/8/8/5Q2 w - - 0 1" "f1f8" "Queen to the edge" "mate mateIn1 endgame" "xc07")
+    (list "6k1/5ppp/r7/8/8/8/5PPP/3RR1K1 w - - 0 1" "d1d8" "Too far to block" "mate mateIn1 backRankMate" "xc08")
+    (list "7k/8/8/8/8/8/R7/1R5K w - - 0 1" "a2a7 h8g8 b1b8" "The ladder" "mate mateIn2 endgame" "xc09")
+    (list "r1b2k1r/ppp1bppp/8/1B1Q4/5q2/2P5/PPP2PPP/R3R1K1 w - - 1 1" "d5d8 e7d8 e1e8" "The queen as bait" "mate mateIn2 backRankMate sacrifice" "xc10")
+    (list "5r1k/6pp/7N/8/8/1Q6/8/6K1 w - - 0 1" "b3g8 f8g8 h6f7" "Philidor's smothered mate" "mate mateIn2 smotheredMate sacrifice" "xc11")
+    (list "rn1qkbnr/ppp2ppp/3p4/4N3/2B1P3/2N5/PPPP1PPP/R1BbK2R w KQkq - 0 6" "c4f7 e8e7 c3d5" "Légal's trap" "mate mateIn2 opening sacrifice" "xc12")
+    (list "k7/8/2K5/8/8/8/8/7R w - - 0 1" "c6c7 a8a7 h1a1" "A waiting move" "mate mateIn2 endgame" "xc13")
+    (list "4k3/8/3K4/8/8/8/8/7R w - - 0 1" "h1f1 e8d8 f1f8" "Take the square" "mate mateIn2 endgame" "xc14")
+    (list "7k/8/5K2/8/8/8/8/1Q6 w - - 0 1" "f6g6 h8g8 b1b8" "The king steps up" "mate mateIn2 endgame" "xc15")
+    (list "r5k1/5Npp/8/8/8/1Q6/8/6K1 w - - 0 1" "f7h6 g8h8 b3g8 a8g8 h6f7" "Philidor's legacy" "mate mateIn3 smotheredMate doubleCheck sacrifice" "xc16")
+    (list "q3k3/8/8/3N4/8/8/5PPP/6K1 w - - 0 1" "d5c7 e8d7 c7a8" "The king and the queen" "crushing fork" "xc17")
+    (list "r5k1/6pp/8/8/8/8/5PPP/3Q2K1 w - - 0 1" "d1d5 g8f8 d5a8" "Check, then the rook" "crushing fork" "xc18")
+    (list "q7/8/8/3k4/8/8/PP6/4KB2 w - - 0 1" "f1g2 d5e6 g2a8" "Through the king" "crushing skewer" "xc19")
+    (list "3k4/1p6/8/8/3q4/8/1P6/R3K3 w - - 0 1" "a1d1 d4d1 e1d1" "The queen cannot move" "crushing pin" "xc20")
+    (list "4k3/8/8/4B3/8/8/4R2K/q7 w - - 0 1" "e5a1" "Out of the way, with check" "crushing discoveredAttack" "xc21")))
 
 ; The puzzles made for this bundle.
 (def puzzle-set
   (fn (_)
-    (List map (fn (_ e) (puzzle-make (first e) (%words (List ref 1 e)) (List ref 2 e) 0 "" (%words (List ref 3 e))))
+    (List map (fn (_ e) (puzzle-make (first e) (%words (List ref 1 e)) (List ref 2 e) 0 (List ref 4 e) (%words (List ref 3 e))))
       %set)))
 
 (def %words (fn (_ s) (List reject (fn (_ w) (str=? w "")) (Str8 split " " s))))
@@ -206,14 +208,13 @@
         (done (if (str=? part "") () ((fn (_ l) (set! part "") l) part)))
         (#t (do (fill!) (self)))))))
 
-; The puzzles of the lichess CSV at PATH with THEME ("" for any, as
-; puzzle-has? takes it) rated from LOW to HIGH (0 for no bound), read as
-; they are asked for: the database runs to millions of lines, and a line
-; is made a puzzle only once its theme and rating are known to fit.  A
-; line without the theme's name anywhere in it is passed over before it
-; is split, which is most of the cost of reading one.  Raises an io Err
-; when the file cannot be opened.
-(def puzzle-file-source
+; The lines of the lichess CSV at PATH whose puzzles have THEME ("" for
+; any, as puzzle-has? takes it) and are rated from LOW to HIGH (0 for no
+; bound), read as they are asked for: the database runs to millions of
+; lines.  A line without the theme's name anywhere in it is passed over
+; before it is split, which is most of the cost of reading one.  Raises
+; an io Err when the file cannot be opened.
+(def puzzle-file-lines
   (fn (_ path theme low high)
     (def line (puzzle-lines path))
     (def needle (if (str=? theme "mate") "mateIn" theme))
@@ -222,9 +223,26 @@
       (def fs (if (null? l) () (if (if (str=? needle "") #f (null? (Str8 index-of needle l))) () (%fields l))))
       (match ((null? l) ())
              ((null? fs) (self))
-             ((if (%has-theme? (%fields-themes fs) theme) (%rated? (%fields-rating fs) low high) #f)
-               ((fn (_ z) (if (null? z) (self) z)) (puzzle-from-csv l)))
+             ((if (%has-theme? (%fields-themes fs) theme) (%rated? (%fields-rating fs) low high) #f) l)
              (#t (self))))))
+
+; The ID of the puzzle a line of the lichess CSV holds, read without
+; making the puzzle.
+(def puzzle-line-id
+  (fn (_ line) ((fn (_ i) (if (null? i) line (str-byte-sub line 0 i))) (Str8 index-of "," line))))
+
+; The puzzles the lines of LINES hold, those that do not read passed
+; over: a source.  Making a puzzle of a line is most of the cost of
+; setting one, and is put off until it is asked for.
+(def puzzle-parsed
+  (fn (_ lines)
+    (fn (self) ((fn (_ l) (if (null? l) () ((fn (_ z) (if (null? z) (self) z)) (puzzle-from-csv l)))) (lines)))))
+
+; The puzzles of the lichess CSV at PATH with THEME rated from LOW to
+; HIGH, as puzzle-file-lines takes them, read as they are asked for: a
+; line is made a puzzle only once its theme and rating are known to fit.
+(def puzzle-file-source
+  (fn (_ path theme low high) (puzzle-parsed (puzzle-file-lines path theme low high))))
 
 ; The puzzles of SOURCE with THEME rated from LOW to HIGH, as
 ; puzzle-file-source takes them.
@@ -236,6 +254,45 @@
                 ((puzzle-in? z theme low high) z)
                 (#t (self))))
        (source)))))
+
+; What SOURCE gives, puzzles or the lines that hold them, in an order
+; drawn at random, ROLL answering a number below its argument: a source.
+; The first asked for reads them all.
+(def puzzle-shuffled
+  (fn (_ source roll)
+    (def left ())
+    (def read? #f)
+    (fn (_)
+      (unless read?
+        (do (set! read? #t)
+            (def v (Vector from-list (%drain source)))
+            ; Fisher-Yates, from the last down
+            (def swap!
+              (fn (self i)
+                (when (< 0 i)
+                  (do (def j (roll (+ i 1)))
+                      (def t (Vector ref i v))
+                      (Vector set! i (Vector ref j v) v)
+                      (Vector set! j t v)
+                      (self (- i 1))))))
+            (swap! (- (Vector length v) 1))
+            (set! left (Vector ->list v))))
+      (if (null? left) () ((fn (_ z) (set! left (rest left)) z) (first left))))))
+
+; One of what SOURCE gives drawn at random, ROLL answering a number below
+; its argument: a source that gives it, then no more.  The source is read
+; through keeping one: the Nth replaces it at a draw of one in N, so each
+; is as likely as any other, and a file of millions of lines is read
+; holding only the one.
+(def puzzle-one
+  (fn (_ source roll)
+    (def done #f)
+    (def pick
+      (fn (self n kept)
+        ((fn (_ z) (if (null? z) kept (self (+ n 1) (if (= 0 (roll n)) z kept)))) (source))))
+    (fn (_) (if done () (do (set! done #t) (pick 1 ()))))))
+
+(def %drain (fn (self source) ((fn (_ z) (if (null? z) () (pair z (self source)))) (source))))
 
 ; --- the library --------------------------------------------------------------------
 
@@ -322,4 +379,4 @@
 (provide chess/puzzle puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source puzzle-in? puzzle-lines
-  puzzle-counts puzzle-count)
+  puzzle-counts puzzle-count puzzle-shuffled puzzle-one puzzle-file-lines puzzle-line-id puzzle-parsed)

@@ -525,6 +525,16 @@
 (obj-set! %zf 17 (pair 0 0))
 (def %z-black (obj-ref %zf 146))
 
+; A number below N drawn at random, from a generator seeded by the time
+; of day the first time one is asked for.
+(def %random ())
+(def chess-roll
+  (fn (_ n)
+    (when (null? %random)
+      (def tod (Sys time-of-day))
+      (set! %random (Random sw (int+ (int* (int& (first tod) 65535) 1000003) (rest tod)))))
+    (%random int n)))
+
 ; Exclusive-or the limbs LO and HI into P's hash.
 (def %z-xor!
   (fn (_ p lo hi)
@@ -746,5 +756,5 @@
   piece-kind piece-colour piece-letter
   sq-file sq-rank sq-make sq-name sq-parse
   move-make move-from move-to move-promo move-flags move-uci move-parse-uci
-  fen-start pos-from-fen pos-fen pos-key parse-int
+  fen-start pos-from-fen pos-fen pos-key parse-int chess-roll
   attacked? in-check? gen-moves make! make-checked! unmake! legal-moves perft)

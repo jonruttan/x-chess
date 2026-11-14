@@ -28,14 +28,16 @@
 (import x/core/doors io-display-to-str int/ int% int* int+ int-)
 (import chess/board PAWN KNIGHT BISHOP ROOK QUEEN KING pos-piece pos-side pos-full pos-copy piece-kind piece-colour
   sq-file sq-rank sq-make sq-name move-from move-to move-promo move-uci move-parse-uci make! in-check? legal-moves
-  pos-from-fen pos-fen fen-start parse-int)
+  pos-from-fen pos-fen fen-start parse-int chess-roll)
 (import chess/search mate-score? mate-in)
 (import chess/game game-new game-pos game-start game-moves game-play! game-undo! game-result game-pgn)
 (import chess/san move-san moves-san move-parse)
 (import chess/player player-builtin player-start player-name player-quit!)
 (import chess/puzzle puzzle-fen puzzle-title puzzle-rating puzzle-id puzzle-solution puzzle-judge puzzle-set
-  puzzle-list-source puzzle-file-source puzzle-filter puzzle-range puzzle-library puzzle-counts puzzle-count)
-(import chess/record record-path record-load record-add! record-solved? record-unsolved record-score)
+  puzzle-list-source puzzle-file-lines puzzle-line-id puzzle-parsed puzzle-shuffled puzzle-one puzzle-range
+  puzzle-library puzzle-counts puzzle-count)
+(import chess/record record-path record-load record-add! record-solved? record-played? record-best record-unsolved
+  record-score)
 (import chess/daily daily-path daily-fetch daily-get)
 
 (def %game 0)
@@ -74,7 +76,11 @@
 (def %pending 33)     ; work to do once the screen is drawn: a function of the state, or ()
 (def %daily 34)       ; (path . fetch) for the puzzle of the day: see chess/daily
 (def %theme 35)       ; how the board is drawn: one of %themes
-(def %slots 36)
+(def %order 36)       ; the order puzzles are set in: easiest, random, or one (one at random)
+(def %skip 37)        ; whether puzzles solved before are passed over
+(def %clock 38)       ; a function answering the milliseconds since some time
+(def %roll 39)        ; a function answering a number below its argument, drawn at random
+(def %slots 40)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -112,7 +118,12 @@
     (%put! st %record-path (opt (lit record) (record-path)))
     (%put! st %daily (opt (lit daily) (pair (daily-path) daily-fetch)))
     (%put! st %theme ((fn (_ t) (if (null? t) (first %themes) t)) (tui-theme (opt (lit board) ""))))
+    (%put! st %order (opt (lit order) (lit easiest)))
+    (%put! st %skip (opt (lit skip) #f))
+    (%put! st %clock (opt (lit clock) (%clock-from (Sys time-of-day))))
+    (%put! st %roll (opt (lit roll) chess-roll))
     (unless (null? (opt (lit puzzles) ())) (tui-puzzles! st (opt (lit puzzles) ())))
+    (unless (null? (opt (lit puzzle-lines) ())) (tui-puzzle-lines! st (opt (lit puzzle-lines) ())))
     st))
 
 (def tui-game (fn (_ st) (%get st %game)))
@@ -328,8 +339,8 @@
 ; Puzzle mode holds a Vector: 0 the source the puzzles come from, 1 the
 ; puzzle, 2 its solution still to play, 3 how many were solved, 4 how
 ; many tried, 5 whether this one was missed (a wrong move, a hint, the
-; answer shown).  You play the side to move; your right moves are
-; answered with the solution's replies.
+; answer shown), 6 the clock's time when it was set.  You play the side
+; to move; your right moves are answered with the solution's replies.
 
 (def %pz (fn (_ st i) (Vector ref i (%get st %puzzle))))
 (def %pz! (fn (_ st i v) (Vector set! i v (%get st %puzzle))))
@@ -341,17 +352,57 @@
     (when (null? (%get st %record)) (%put! st %record (record-load (%get st %record-path))))
     (%get st %record)))
 
-; Solve the puzzles SOURCE gives, one after another, those solved before
-; passed over.
+; A clock of the milliseconds since TOD, a time of day (seconds .
+; microseconds): counted from it, the seconds stay small on a 32-bit word.
+(def %clock-from
+  (fn (_ tod)
+    (fn (_) ((fn (_ now) (+ (* 1000 (- (first now) (first tod))) (int/ (- (rest now) (rest tod)) 1000))) (Sys time-of-day)))))
+
+; Solve the puzzles SOURCE gives, one after another, in the order and
+; with those solved passed over or not as the choice has them.
 (def tui-puzzles!
-  (fn (_ st source)
-    (def pz (Vector make 6 ()))
-    (Vector set! 0 (record-unsolved (%record-of st) source) pz)
+  (fn (_ st source) (%set-puzzles! st source puzzle-id (fn (_ s) s))))
+
+; Solve the puzzles LINES of the lichess CSV hold, as tui-puzzles! does:
+; a line is made a puzzle only once it is set.
+(def tui-puzzle-lines!
+  (fn (_ st lines) (%set-puzzles! st lines puzzle-line-id puzzle-parsed)))
+
+; Set what SOURCE gives, ID-OF answering the ID of each and TO-PUZZLES
+; making a source of puzzles of them.
+(def %set-puzzles!
+  (fn (_ st source id-of to-puzzles)
+    (def kept (if (%get st %skip) (record-unsolved (%record-of st) source id-of) source))
+    (def order (%get st %order))
+    (def pz (Vector make 7 ()))
+    (Vector set! 0
+      (to-puzzles (match ((eq? order (lit random)) (puzzle-shuffled kept (%get st %roll)))
+                         ((eq? order (lit one)) (puzzle-one kept (%get st %roll)))
+                         (#t kept)))
+      pz)
     (Vector set! 3 0 pz)
     (Vector set! 4 0 pz)
     (%put! st %puzzle pz)
     (%put! st %analyse #f)
     (%next-puzzle! st)))
+
+; MS milliseconds as said: 12.4 s, or 2:05 from a minute.
+(def %time-text
+  (fn (_ ms)
+    (def s (int/ ms 1000))
+    (if (< s 60)
+      (Str8 append (io-display-to-str s) "." (io-display-to-str (int/ (int% ms 1000) 100)) " s")
+      (Str8 append (io-display-to-str (int/ s 60)) ":" (Str8 pad-left 2 #\0 (io-display-to-str (int% s 60)))))))
+
+; What is said of puzzle Z finished before: "" when it was not.
+(def %before-text
+  (fn (_ st z)
+    (def r (%record-of st))
+    (def best (record-best r (puzzle-id z)))
+    (match ((not (null? best)) (Str8 append "  Solved before in " (%time-text best) "."))
+           ((record-solved? r (puzzle-id z)) "  Solved before.")
+           ((record-played? r (puzzle-id z)) "  Missed before.")
+           (#t ""))))
 
 (def %count-text
   (fn (_ st) (Str8 append (io-display-to-str (%pz st 3)) " of " (io-display-to-str (%pz st 4)) " solved")))
@@ -374,7 +425,8 @@
           (%put! st %sel -1) (%put! st %review -1) (%put! st %hint 0) (%put! st %promo ())
           (%put! st %eval ()) (%put! st %expect ())
           (tui-thinking-clear! st)
-          (%put! st %msg (Str8 append (puzzle-title z) ": " (%side-name side) " to move."))))))
+          (%put! st %msg (Str8 append (puzzle-title z) ": " (%side-name side) " to move." (%before-text st z)))
+          (%pz! st 6 ((%get st %clock)))))))
 
 ; z: the next puzzle, or the choice of puzzles when none is being solved.
 (def %puzzle-key!
@@ -382,7 +434,7 @@
     (if (null? (%get st %puzzle)) (%put! st %choose #t) (%next-puzzle! st))))
 
 ; The choice z offers of the library's puzzles: the key, the theme (as
-; puzzle-file-source takes it), and what is said of it.
+; puzzle-file-lines takes it), and what is said of it.
 (def %choices
   (list (list "1" "mateIn1" "Mate in one")
         (list "2" "mateIn2" "Mate in two")
@@ -404,24 +456,29 @@
         (list "rated 1400 to 1799" 1400 1799) (list "rated 1800 to 2199" 1800 2199)
         (list "rated 2200 and up" 2200 0)))
 
-; Puzzles of THEME from the library, in the band chosen, easiest first:
-; a source.  Raises when the library cannot be read.
+; The orders o steps through: the order, and what is said of it.
+(def %orders
+  (list (pair (lit easiest) "easiest first") (pair (lit random) "in a random order") (pair (lit one) "one at random")))
+
+; The lines of the library holding puzzles of THEME, in the band chosen,
+; easiest first: a source.  Raises when the library cannot be read.
 (def %chosen
   (fn (_ st theme)
     (def b (List ref (%get st %band) %bands))
     (def lib (puzzle-library))
     (when (null? lib) (Err raise (lit io) "the puzzle library is not there" ()))
-    (puzzle-file-source lib theme (List ref 1 b) (List ref 2 b))))
+    (puzzle-file-lines lib theme (List ref 1 b) (List ref 2 b))))
 
 ; Set the puzzles of THEME the choice picks, or say why there are none.
 (def %start-chosen!
   (fn (_ st theme)
     (guard (e (%put! st %msg (Str8 append "x-chess: " (if (Err err? e) (e msg) (io-display-to-str e)))))
-      (tui-puzzles! st (%chosen st theme)))))
+      (tui-puzzle-lines! st (%chosen st theme)))))
 
-; KEY pressed with the choice shown: < and > another band, x the built-in
-; puzzles, l the puzzle of the day, a theme's key its puzzles; any other
-; closes the choice.
+; KEY pressed with the choice shown: < and > another band, o another
+; order, u the solved passed over or not, x the built-in puzzles, l the
+; puzzle of the day, a theme's key its puzzles; any other closes the
+; choice.
 (def %choose-key!
   (fn (_ st key)
     (def c (if (str? key) (List find (fn (_ c) (str=? (first c) key)) %choices) ()))
@@ -429,6 +486,11 @@
       ((if (%is? key "<") #t (eq? key (lit left))) (%put! st %band (%max 0 (- (%get st %band) 1))))
       ((if (%is? key ">") #t (eq? key (lit right)))
         (%put! st %band (%min (- (List length %bands) 1) (+ (%get st %band) 1))))
+      ((%is? key "o")
+        (%put! st %order
+          ((fn (_ at) (first (if (if (null? at) #t (null? (rest at))) (first %orders) (first (rest at)))))
+           (List drop-while (fn (_ o) (not (eq? (first o) (%get st %order)))) %orders))))
+      ((%is? key "u") (%put! st %skip (not (%get st %skip))))
       ((%is? key "x") (do (%put! st %choose #f) (tui-puzzles! st (puzzle-list-source (puzzle-set)))))
       ((%is? key "l") (do (%put! st %choose #f) (%ask-daily! st)))
       ((null? c) (%put! st %choose #f))
@@ -449,7 +511,7 @@
     (guard (e (%put! st %msg (Str8 append "x-chess: " (if (Err err? e) (e msg) (io-display-to-str e)))))
       ((fn (_ got)
          (def z (first got))
-         (if (record-solved? (%record-of st) (puzzle-id z))
+         (if (if (%get st %skip) (record-solved? (%record-of st) (puzzle-id z)) #f)
            (%put! st %msg (Str8 append "You have solved today's puzzle, " (puzzle-id z) ", rated " (io-display-to-str (puzzle-rating z)) "."))
            (do (tui-puzzles! st (puzzle-list-source (list z)))
                (unless (str=? (rest got) "") (%put! st %msg (Str8 append "x-chess: " (rest got) ".  " (%get st %msg)))))))
@@ -460,14 +522,15 @@
   (fn (_ st)
     ((fn (_ w) (if (null? w) #f (do (%put! st %pending ()) (w st) #t))) (%get st %pending))))
 
-; The puzzles of :puzzles FILE [THEME] [LOW-HIGH], as WORDS: a source.
+; The lines holding the puzzles of :puzzles FILE [THEME] [LOW-HIGH], as
+; WORDS: a source.
 (def %file-puzzles
   (fn (_ words)
     (def more (rest words))
     (def range-word (List find (fn (_ w) (not (null? (puzzle-range w)))) more))
     (def theme (List find (fn (_ w) (null? (puzzle-range w))) more))
     (def range (if (null? range-word) (pair 0 0) (puzzle-range range-word)))
-    (puzzle-file-source (first words) (if (null? theme) "" theme) (first range) (rest range))))
+    (puzzle-file-lines (first words) (if (null? theme) "" theme) (first range) (rest range))))
 
 ; Your move M in the puzzle, LEAD said before what follows when it is right.
 (def %puzzle-move!
@@ -493,8 +556,16 @@
   (fn (_ st lead)
     (%pz! st 2 ())
     (unless (%pz st 5) (%pz! st 3 (+ 1 (%pz st 3))))
-    (record-add! (%record-of st) (%pz st 1) (not (%pz st 5)))
-    (%put! st %msg (Str8 append lead (if (%pz st 5) "Done" "Solved") " (" (%count-text st) "): z for the next puzzle."))))
+    (def ms (- ((%get st %clock)) (%pz st 6)))
+    (def best (record-best (%record-of st) (puzzle-id (%pz st 1))))
+    (record-add! (%record-of st) (%pz st 1) (not (%pz st 5)) ms)
+    (%put! st %msg
+      (Str8 append lead
+        (match ((%pz st 5) "Done")
+               ((null? best) (Str8 append "Solved in " (%time-text ms)))
+               ((< ms best) (Str8 append "Solved in " (%time-text ms) ", faster than your " (%time-text best)))
+               (#t (Str8 append "Solved in " (%time-text ms) ", your best " (%time-text best))))
+        " (" (%count-text st) "): z for the next puzzle."))))
 
 ; M was right: it is made, and the first of LEFT, the line on from it,
 ; is the reply.
@@ -706,7 +777,7 @@
       ((str=? cmd "puzzles")
         (if (str=? arg "") (%put! st %msg "puzzles takes a file, then a theme and a rating range if you like")
           (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg))))
-            (tui-puzzles! st (%file-puzzles (rest words))))))
+            (tui-puzzle-lines! st (%file-puzzles (rest words))))))
       ((str=? cmd "save")
         (if (str=? arg "") (%put! st %msg "save takes a file name")
           (guard (e (%put! st %msg (Str8 append "x-chess: " (e msg))))
@@ -1161,9 +1232,12 @@
     (def lines
       (List append (list (Str8 append "Puzzles, " (first b)) "")
         (List map (fn (_ c) (Str8 append (first c) "   " (Str8 pad-right 20 #\space (List ref 2 c)) (count c) "   " (score c))) %choices)
-        (list "x   x-chess's own, unrated" "l   lichess's puzzle of the day" "" "< >  another rating · any other key: back to the game")))
+        (list "x   x-chess's own, unrated" "l   lichess's puzzle of the day" ""
+              (Str8 append "o   " (rest (Assoc find (%get st %order) %orders)))
+              (if (%get st %skip) "u   those solved passed over" "u   those solved set again")
+              "" "< >  another rating · any other key: back to the game")))
     (%draw-box! st screen 58 lines)))
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?
-  tui-draw! tui-puzzles! tui-work! tui-theme tui-theme-names)
+  tui-draw! tui-puzzles! tui-puzzle-lines! tui-work! tui-theme tui-theme-names)
