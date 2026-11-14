@@ -281,9 +281,18 @@
     (def m (if (null? why) (move-parse (game-pos (%get st %game)) text) ()))
     (match
       ((not (null? why)) (%put! st %msg why))
-      ((null? m) (%put! st %msg (Str8 append "Not a legal move here: " text)))
+      ((null? m) (%put! st %msg (%not-legal (game-pos (%get st %game)) text)))
       (#t (%play! st m)))
     (%put! st %input "")))
+
+; Why TEXT is no move in P.  A promotion named without its piece is told
+; how it is written, for a queen and the others.
+(def %not-legal
+  (fn (_ p text)
+    (def q ((fn (_ m) (if (null? m) (move-parse p (Str8 append text "=Q")) m)) (move-parse p (Str8 append text "q"))))
+    (if (null? q) (Str8 append "Not a legal move here: " text)
+      (Str8 append text " promotes: say to what, " (move-uci q) " or " (move-san p q)
+        " for a queen; r, b or n for the others."))))
 
 ; The legal moves from square FROM.
 (def %moves-from
@@ -310,18 +319,52 @@
     (match
       ((null? ms) (do (%put! st %sel -1) (%put! st %msg "Not a legal move.")))
       ((null? (rest ms)) (%play! st (first ms)))
-      (#t (do (%put! st %promo (pair from to)) (%put! st %msg "Promote to: q queen, r rook, b bishop, n knight"))))))
+      (#t (do (%put! st %promo (pair from to))
+              (%put! st %msg "Promote to: click a piece, or q queen, r rook, b bishop, n knight"))))))
+
+; The pieces a promotion waiting for its piece offers, as (SQUARE . KIND):
+; down the file of the square put down on, from it toward the middle.
+(def %promo-choices
+  (fn (_ st)
+    (def to (rest (%get st %promo)))
+    (def step (if (= (sq-rank to) 7) -1 1))
+    (List map (fn (_ i) (pair (sq-make (sq-file to) (+ (sq-rank to) (* i step))) (List ref i (list QUEEN ROOK BISHOP KNIGHT))))
+      (List range 0 4))))
+
+; The kind of piece the promotion picker offers on SQ, or 0.
+(def %promo-kind-at
+  (fn (_ st sq)
+    (if (null? (%get st %promo)) 0
+      ((fn (_ c) (if (null? c) 0 (rest c))) (List find (fn (_ c) (= (first c) sq)) (%promo-choices st))))))
+
+(def %promo-off!
+  (fn (_ st msg) (%put! st %promo ()) (%put! st %sel -1) (%put! st %msg msg)))
+
+; A key while a promotion waits: a letter or a click on the picker
+; chooses; a button let go or a drag is not an answer.
+(def %promo-key!
+  (fn (_ st key)
+    (match
+      ((str? key) (%promote! st key))
+      ((if (pair? key) (eq? (first key) (lit mouse)) #f)
+        (when (if (= (List ref 1 key) 0) (List ref 4 key) #f)
+          ((fn (_ kind) (if (< 0 kind) (%promote-kind! st kind) (%promo-off! st "No promotion made.")))
+           (%promo-kind-at st (%square-at st (- (List ref 3 key) 1) (- (List ref 2 key) 1))))))
+      (#t (%promo-off! st "")))))
 
 (def %promote!
   (fn (_ st letter)
-    (def kind (match ((str=? letter "q") QUEEN) ((str=? letter "r") ROOK) ((str=? letter "b") BISHOP)
-                     ((str=? letter "n") KNIGHT) (#t 0)))
+    (%promote-kind! st (match ((str=? letter "q") QUEEN) ((str=? letter "r") ROOK) ((str=? letter "b") BISHOP)
+                              ((str=? letter "n") KNIGHT) (#t 0)))))
+
+(def %promote-kind!
+  (fn (_ st kind)
     (def from (first (%get st %promo)))
     (def to (rest (%get st %promo)))
     (def m (List find (fn (_ m) (if (= (move-to m) to) (= (move-promo m) kind) #f)) (%moves-from st from)))
     (match
-      ((null? m) (do (%put! st %promo ()) (%put! st %sel -1) (%put! st %msg "No promotion made.")))
-      (#t (%play! st m)))))
+      ((null? m) (%promo-off! st "No promotion made."))
+      (#t (do (%put! st %promo ()) (%play! st m))))))
 
 ; --- puzzles -----------------------------------------------------------------------
 ;
@@ -529,11 +572,20 @@
 
 ; --- keys --------------------------------------------------------------------------
 
-; The characters a move is typed with.
+; The characters a move is typed with, and once one is begun, the
+; letters of a promotion in long algebraic (b7b8q), which are keys
+; of their own on an empty line.
 (def %move-chars "abcdefgh12345678NBRQKOo0x=+#-")
+(def %promo-chars "qrn")
 
 (def %move-char?
-  (fn (_ key) (if (str? key) (if (= (Str8 length key) 1) (Str8 includes? key %move-chars) #f) #f)))
+  (fn (_ st key)
+    (if (str? key)
+      (if (= (Str8 length key) 1)
+        (if (Str8 includes? key %move-chars) #t
+          (if (str=? (%get st %input) "") #f (Str8 includes? key %promo-chars)))
+        #f)
+      #f)))
 
 (def %cursor-step!
   (fn (_ st df dr)
@@ -594,10 +646,9 @@
       ((not (null? (%get st %command))) (%command-key! st key))
       ((%get st %choose) (%choose-key! st key))
       ((%get st %help) (%put! st %help #f))
-      ((not (null? (%get st %promo)))
-        (if (str? key) (%promote! st key) (do (%put! st %promo ()) (%put! st %sel -1) (%put! st %msg ""))))
+      ((not (null? (%get st %promo))) (%promo-key! st key))
       ((if (pair? key) (eq? (first key) (lit mouse)) #f) (%mouse! st key))
-      ((%move-char? key) (%put! st %input (Str8 append (%get st %input) key)))
+      ((%move-char? st key) (%put! st %input (Str8 append (%get st %input) key)))
       ((eq? key (lit backspace))
         (%put! st %input (if (str=? (%get st %input) "") "" (Str8 slice 0 (- (Str8 length (%get st %input)) 1) (%get st %input)))))
       ((eq? key (lit enter))
@@ -827,6 +878,7 @@
     (def pc (pos-piece p sq))
     (def hint (%get st %hint))
     (match
+      ((< 0 (%promo-kind-at st sq)) (lit sel))
       ((if (= (piece-kind pc) KING) (if (= (piece-colour pc) (pos-side p)) (in-check? p) #f) #f) (lit check))
       ((= sq (%get st %sel)) (lit sel))
       ((if (%get st %cursor-on) (= sq (%get st %cursor)) #f) (lit cur))
@@ -859,7 +911,8 @@
     (def shown (%shown st))
     (def p (first shown))
     (def last (rest shown))
-    (def targets (if (< (%get st %sel) 0) () (List map move-to (%moves-from st (%get st %sel)))))
+    (def targets (if (if (< (%get st %sel) 0) #t (not (null? (%get st %promo)))) ()
+                   (List map move-to (%moves-from st (%get st %sel)))))
     (List for-each
       (fn (_ i)
         (def r (int/ i 8))
@@ -871,7 +924,8 @@
         (def y (+ %top (* r h)))
         (def x (+ %left (* c w)))
         (List for-each (fn (_ k) (Screen put screen (+ y k) x fill sq-style)) (List range 0 h))
-        (def pc (pos-piece p sq))
+        ; the promotion picker's pieces stand over what is there
+        (def pc ((fn (_ k) (if (< 0 k) (+ (pos-side p) k) (pos-piece p sq))) (%promo-kind-at st sq)))
         (def cy (+ y (int/ h 2)))
         (def cx (+ x (int/ w 2)))
         ; the mark on a square the piece picked up can go to: I the colour
@@ -1069,6 +1123,8 @@
 (def %help-lines
   (list "Moves: type one (e4, Nf3, O-O, e7e8q) then Enter,"
         "or click a piece then its square, or the arrows and Enter."
+        "Promote: b7b8q, or b8=Q in SAN; r b n for the others;"
+        "clicked, pick one of the four shown down the file."
         ""
         "u      take back          n  new game"
         "v      turn the board     w  play the other side"

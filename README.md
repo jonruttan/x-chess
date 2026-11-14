@@ -38,7 +38,9 @@ The pieces are bold in every theme.
 A move is typed (SAN or long algebraic, then Enter), or made with the
 mouse, a click on the piece then on its square, or with the arrows and
 Enter; a piece picked up shows where it can go.  A pawn reaching the
-last rank asks for its piece.  The keys that cannot begin a move are
+last rank asks for its piece: a click on one of the four shown down its
+file, or q, r, b or n.  Typed, the piece follows the move: b7b8q, or
+b8=Q in SAN.  The keys that cannot begin a move are
 commands:
 
     u        take back your move and the engine's reply

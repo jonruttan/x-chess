@@ -220,7 +220,81 @@ Not a legal move here: Nf6
 (write (list asked (spec-moves st)))
 ```
 ---
-    ("Promote to: q queen, r rook, b bishop, n knight" ("e7e8n"))
+    ("Promote to: click a piece, or q queen, r rook, b bishop, n knight" ("e7e8n"))
+
+### clicked, the buttons let go too: the picker stays, Q R B N down the file, and a click on R makes a rook
+
+```chess
+(def st (tui-make (list (pair (lit board) "ascii") (pair (lit fen) "8/1P6/8/4k3/2K4p/8/5p1P/8 w - - 0 50"))))
+(def s (Screen make 30 100))
+(spec-draw! st s)
+(def click (fn (_ col row) (tui-key! st (list (lit mouse) 0 col row #t)) (tui-key! st (list (lit mouse) 0 col row #f))))
+(click 13 5)
+(click 13 2)
+(spec-draw! st s)
+(display (spec-rows s (list 2 5 8 11 28)))
+(newline)
+(click 13 5)
+(write (spec-moves st))
+```
+---
+```output
+8        ...Q...       .......       .......       ....... :  Thinking
+7 .......   R   .......       .......       .......        :
+6        ...B...       .......       .......       ....... :
+5 .......   N   .......       ...k...       .......        :
+Promote to: click a piece, or q queen, r rook, b bishop, n knight
+("b7b8r")
+```
+
+### ? shows how a promotion is typed and clicked
+
+```chess
+(def st (tui-make ()))
+(def s (Screen make 30 100))
+(tui-key! st "?")
+(spec-draw! st s)
+(display (spec-rows s (list 7 8)))
+```
+---
+```output
+                      Promote: b7b8q, or b8=Q in SAN; r b n for the others;
+6                     clicked, pick one of the four shown down the file.
+```
+
+### a click off the picker makes no promotion
+
+```chess
+(def st (tui-make (list (pair (lit fen) "8/1P6/8/4k3/2K4p/8/5p1P/8 w - - 0 50"))))
+(def s (Screen make 30 100))
+(spec-draw! st s)
+(spec-keys! st (list (list (lit mouse) 0 13 5 #t) (list (lit mouse) 0 13 2 #t) (list (lit mouse) 0 13 2 #f)
+                     (list (lit mouse) 0 45 23 #t)))
+(spec-draw! st s)
+(write (list (spec-rows s (list 28)) (spec-moves st)))
+```
+---
+    ("No promotion made." ())
+
+### typed: a promotion without its piece says how it is written; b7b8q and b8=Q are taken
+
+```chess
+(def fen "8/1P6/8/4k3/2K4p/8/5p1P/8 w - - 0 50")
+(def s (Screen make 30 100))
+(def st (tui-make (list (pair (lit fen) fen))))
+(spec-keys! st (list "b" "7" "b" "8" (lit enter)))
+(spec-draw! st s)
+(def said (spec-rows s (list 28)))
+(spec-keys! st (list "b" "7" "b" "8" "q" (lit enter)))
+(def uci (spec-moves st))
+(def st2 (tui-make (list (pair (lit fen) fen))))
+(spec-keys! st2 (list "b" "8" "=" "Q" (lit enter)))
+(def st3 (tui-make (list (pair (lit fen) fen))))
+(spec-keys! st3 (list "b" "7" "b" "8" "n" (lit enter)))
+(write (list said uci (spec-moves st2) (spec-moves st3) (tui-quit? st)))
+```
+---
+    ("b7b8 promotes: say to what, b7b8q or b8=Q+ for a queen; r, b or n for the others." ("b7b8q") ("b7b8q") ("b7b8n") #f)
 
 ### a piece of the side not to move is not picked up
 
