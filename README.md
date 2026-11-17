@@ -1,5 +1,7 @@
 # x-chess
 
+<p align="center"><img src="docs/bitwise-banner.svg" alt="x-chess, with Bitwise the owl" width="100%"></p>
+
 A chess engine written in [x-lang](https://github.com/jonruttan/x-lang),
 loaded as a lang: a game against the engine at the terminal, and the
 Universal Chess Interface for chess GUIs and other engines.
