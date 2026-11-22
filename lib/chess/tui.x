@@ -140,6 +140,7 @@
 (def tui-ms (fn (_ st) (%get st %ms)))
 (def tui-analysing? (fn (_ st) (%get st %analyse)))
 (def tui-message! (fn (_ st text) (%put! st %msg text)))
+(def tui-sel (fn (_ st) (%get st %sel)))
 
 (def %side-name (fn (_ side) (if (= side 0) "White" "Black")))
 
@@ -464,6 +465,9 @@
   (fn (_ st key)
     (match
       ((str? key) (%promote! st key))
+      ((if (pair? key) (eq? (first key) (lit square)) #f)
+        ((fn (_ kind) (if (< 0 kind) (%promote-kind! st kind) (%promo-off! st "No promotion made.")))
+         (%promo-kind-at st (List ref 1 key))))
       ((if (pair? key) (eq? (first key) (lit mouse)) #f)
         (when (if (= (List ref 1 key) 0) (List ref 4 key) #f)
           ((fn (_ kind) (if (< 0 kind) (%promote-kind! st kind) (%promo-off! st "No promotion made.")))
@@ -825,6 +829,7 @@
       ((%get st %choose) (%choose-key! st key))
       ((%get st %help) (%put! st %help #f))
       ((not (null? (%get st %promo))) (%promo-key! st key))
+      ((if (pair? key) (eq? (first key) (lit square)) #f) (%square-key! st (List ref 1 key)))
       ((if (pair? key) (eq? (first key) (lit mouse)) #f) (%mouse! st key))
       ((%move-char? st key) (%put! st %input (Str8 append (%get st %input) key)))
       ((eq? key (lit backspace))
@@ -881,8 +886,10 @@
     (def col (- (List ref 2 key) 1))
     (def row (- (List ref 3 key) 1))
     (def sq (%square-at st row col))
-    (when (if (= b 0) (if (List ref 4 key) (< -1 sq) #f) #f)
-      (do (%put! st %cursor sq) (%pick! st sq)))))
+    (when (if (= b 0) (if (List ref 4 key) (< -1 sq) #f) #f) (%square-key! st sq))))
+
+; A square chosen, KEY (square SQ): by a click, or a piece let go on it.
+(def %square-key! (fn (_ st sq) (%put! st %cursor sq) (%pick! st sq)))
 
 ; --- : commands --------------------------------------------------------------------
 
@@ -1238,15 +1245,21 @@
 ; figures, and its material lead in pawns.
 (def %taken
   (fn (_ st p side start)
+    (def gone (%gone p side start))
+    (Str8 append (Str8 join "" (List map (fn (_ k) (%piece-text st (+ (- 8 side) k))) (first gone)))
+      (if (< 0 (rest gone)) (Str8 append " +" (io-display-to-str (rest gone))) ""))))
+
+; What SIDE has taken in P since the game's start, START the counts there:
+; (KINDS . LEAD), the kinds queen first, and its material lead in pawns.
+(def %gone
+  (fn (_ p side start)
     (def counts (%counts p))
     (def count (fn (_ colour kind) (Vector ref (+ colour kind) counts)))
     (def other (- 8 side))
-    (def gone (List flat-map (fn (_ k) (List repeat (%max 0 (- (Vector ref (+ other k) start) (count other k))) k)) (list 5 4 3 2 1)))
     (def worth
       (fn (_ colour) (List fold (fn (_ n k) (+ n (* (List ref k %material) (count colour k)))) 0 (list 1 2 3 4 5))))
-    (def lead (- (worth side) (worth other)))
-    (Str8 append (Str8 join "" (List map (fn (_ k) (%piece-text st (+ other k))) gone))
-      (if (< 0 lead) (Str8 append " +" (io-display-to-str lead)) ""))))
+    (pair (List flat-map (fn (_ k) (List repeat (%max 0 (- (Vector ref (+ other k) start) (count other k))) k)) (list 5 4 3 2 1))
+      (- (worth side) (worth other)))))
 
 (def %strip!
   (fn (_ st screen row side p over start)
@@ -1486,8 +1499,10 @@
 
 ; The choice of puzzles z shows, in the band chosen: how many there are
 ; of each, and how many of each you have solved of those you finished.
-(def %draw-choice!
-  (fn (_ st screen)
+(def %draw-choice! (fn (_ st screen) (%draw-box! st screen 58 (%choice-lines st))))
+
+(def %choice-lines
+  (fn (_ st)
     (def b (List ref (%get st %band) %bands))
     (def counts (%library-counts st))
     (def count
@@ -1505,9 +1520,92 @@
               (Str8 append "o   " (rest (Assoc find (%get st %order) %orders)))
               (if (%get st %skip) "u   those solved passed over" "u   those solved set again")
               "" "< >  another rating · any other key: back to the game")))
-    (%draw-box! st screen 58 lines)))
+    lines))
+
+; --- the view a window draws -------------------------------------------------------
+;
+; What a front end other than the terminal draws, read from the state
+; once a frame: an alist, each key a symbol.
+;
+;   pos last      the position shown and the move that led to it, or 0
+;   view          the side at the bottom: 0 white, 8 black
+;   sel targets   the square picked up (or -1) and where it can go
+;   hint check    the move marked as a hint (or 0); the king in check (or -1)
+;   promo         the promotion picker's (SQUARE . KIND)s, or ()
+;   share score standing detail   as the bar and the score panel say them
+;   title msg input command keys  the panel's title, the message, a move or
+;                 a : command being typed (or ()), the line of keys
+;   strips        (TOP BOTTOM), each (WHO SIDE TO-MOVE? KINDS LEAD)
+;   rows ply      the move rows, as %move-rows, and the ply shown
+;   stats thinking   the search's figures and its lines, or () when hidden
+;   suggesting suggest-status suggested   whether suggestions are on, what
+;                 the heading says, and rows (MOVE SCORE LINE)
+;   over          the result said, or ()
+;   help choice   the lines of the box shown, or ()
+;   puzzle review whether a puzzle is set; the ply looked back at, or -1
+(def tui-view
+  (fn (_ st)
+    (def g (%get st %game))
+    (def shown (%shown st))
+    (def p (first shown))
+    (def sel (%get st %sel))
+    (def promo (not (null? (%get st %promo))))
+    (def over (if (< (%get st %review) 0) (game-result g) ()))
+    (def start (%counts (%start-pos st)))
+    (def a (%assessment st p))
+    (%put! st %marked (%hint-shown st))
+    (def king
+      (fn (_) ((fn (_ k) (if (null? k) -1 k))
+               (List find (fn (_ sq) (= (pos-piece p sq) (+ (pos-side p) KING)))
+                 (List map (fn (_ i) (+ (* (int/ i 8) 16) (int% i 8))) (List range 0 64))))))
+    (def who
+      (fn (_ side)
+        (if (if (eq? (%get st %human) (lit both)) #t (if (eq? (%get st %human) (lit white)) (= side 0) (= side 8)))
+          "You" (player-name (%get st %engine)))))
+    (def strip
+      (fn (_ side)
+        ((fn (_ gone) (list (who side) side (if (= (pos-side p) side) (null? (game-result g)) #f) (first gone) (rest gone)))
+         (%gone p side start))))
+    (def s (%suggested-for st (pos-fen (game-pos g))))
+    (list (pair (lit pos) p)
+          (pair (lit last) (rest shown))
+          (pair (lit view) (%get st %view))
+          (pair (lit sel) sel)
+          (pair (lit targets) (if (if (< sel 0) #t promo) () (List map move-to (%moves-from st sel))))
+          (pair (lit hint) (%get st %marked))
+          (pair (lit check) (if (in-check? p) (king) -1))
+          (pair (lit promo) (if promo (%promo-choices st) ()))
+          (pair (lit share) (first a))
+          (pair (lit score) (List ref 1 a))
+          (pair (lit standing) (List ref 2 a))
+          (pair (lit detail) (List ref 3 a))
+          (pair (lit title) (%panel-title st))
+          (pair (lit msg) (%get st %msg))
+          (pair (lit input) (%get st %input))
+          (pair (lit command) (%get st %command))
+          (pair (lit keys) (if (null? (%get st %puzzle)) %keys-line %puzzle-keys-line))
+          (pair (lit strips) (list (strip (- 8 (%get st %view))) (strip (%get st %view))))
+          (pair (lit rows) (%move-rows st))
+          (pair (lit ply) (if (< (%get st %review) 0) (List length (game-moves g)) (%get st %review)))
+          (pair (lit stats) (%get st %stats))
+          (pair (lit thinking) (if (%get st %show-think) (%get st %thinking) ()))
+          (pair (lit suggesting) (%suggesting? st))
+          (pair (lit suggest-status)
+            (match ((not (null? (%cannot-move st))) "on your move")
+                   ((if (null? s) #t (not (List ref 1 s))) "looking")
+                   (#t "")))
+          (pair (lit suggested)
+            (List map (fn (_ row) ((fn (_ sans) (list (if (null? sans) "" (first sans)) (%score-text (first row))
+                                                       (Str8 join " " (if (null? sans) () (rest sans)))))
+                                   (List ref 2 row)))
+              (if (null? s) () (List ref 2 s))))
+          (pair (lit over) (if (null? over) () (Str8 append (%result-text (first over)) " by " (rest over))))
+          (pair (lit help) (if (%get st %help) %help-lines ()))
+          (pair (lit choice) (if (%get st %choose) (%choice-lines st) ()))
+          (pair (lit puzzle) (not (null? (%get st %puzzle))))
+          (pair (lit review) (%get st %review)))))
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?
   tui-draw! tui-puzzles! tui-puzzle-lines! tui-work! tui-theme tui-theme-names tui-scored! tui-unscored tui-suggest-wanted
-  tui-suggestion! tui-suggested!)
+  tui-suggestion! tui-suggested! tui-view tui-sel)

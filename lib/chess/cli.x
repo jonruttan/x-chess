@@ -7,7 +7,7 @@
 ; @license MIT No Attribution (MIT-0)
 ;
 ;   x -l chess -- [--white|--black|--both] [--fen FEN] [--time S] [--depth N] [--think] [--engine CMD]
-;                  [--book FILE|--no-book]
+;                  [--book FILE|--no-book] [--window | --web [--listen ADDRESS]]
 ;   x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH] [--unsolved] [--random|--one]
 ;   x -l chess -- --uci
 ;   x -l chess -- --perft N [--fen FEN]
@@ -32,6 +32,9 @@
 (import chess/player player-builtin player-start player-quit!)
 (import chess/match match-run)
 (import chess/app app-run)
+(import chess/window window-run)
+(import x/sys/sdl)
+(import x/sys/web)
 (import chess/tui tui-theme tui-theme-names)
 (import chess/puzzle puzzle-set puzzle-list-source puzzle-file-lines puzzle-filter puzzle-range puzzle-library)
 (import x/sys/date)
@@ -41,7 +44,7 @@
 (def %usage
   (Str8 join "\n"
     (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]"
-          "                         [--board wood|green|blue|grey|ascii] [--book FILE|--no-book]"
+          "                         [--board wood|green|blue|grey|ascii] [--book FILE|--no-book] [--window | --web [--listen ADDRESS]]"
           "       x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH] [--unsolved] [--random|--one]"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
@@ -51,6 +54,8 @@
           "A game against the engine on a terminal, the board filling it (? lists the keys);"
           "--line plays it a line at a time instead (help lists the commands), --letters draws"
           "the pieces as letters, --coach judges your moves against the engine's."
+          "--window plays it in a window, pieces clicked or dragged; --web in a browser tab"
+          "instead, its address printed, --listen the address to listen on (127.0.0.1)."
           "--board draws the board in a theme: wood (the default), green, blue, grey, or ascii,"
           "letters and no colour."
           "--puzzle sets the board's puzzles from the 2,342 x-chess ships, cut from the lichess"
@@ -85,7 +90,9 @@
         (pair "-h" (pair (lit help) #t))
         (pair "--version" (pair (lit version) #t))
         (pair "--no-book" (pair (lit book) (lit none)))
-        (pair "--tables" (pair (lit tables) #t))))
+        (pair "--tables" (pair (lit tables) #t))
+        (pair "--window" (pair (lit front) (lit window)))
+        (pair "--web" (pair (lit front) (lit web)))))
 
 ; The options in ARGS as an alist, or ((error . TEXT)).
 (def chess-options
@@ -121,6 +128,9 @@
         (if (if (null? value) #t (null? (tui-theme value)))
           (list (pair (lit error) (Str8 append "--board takes one of " (Str8 join ", " (tui-theme-names)))))
           (self (List drop 2 args) (pair (pair (lit board) value) opts))))
+      ((str=? a "--listen")
+        (if (null? value) (list (pair (lit error) "--listen takes an address"))
+          (self (List drop 2 args) (pair (pair (lit listen) value) opts))))
       ((str=? a "--theme")
         (if (null? value) (list (pair (lit error) "--theme takes a theme: mateIn2, mate, fork, ..."))
           (self (List drop 2 args) (pair (pair (lit theme) value) opts))))
@@ -249,10 +259,28 @@
           (when (if (null? puzzles) #f (not board)) (Err raise (lit usage) "puzzles are solved on the board, on a terminal" ()))
           (def pl (player-start (if (null? engines) () (first engines))))
           ; the board has no line to say the endgame tables are building on
-          (if board (do (tables-allow-build! #f)
-                        (app-run (List append (list (pair (lit engine) pl)) (if (null? puzzles) () (list puzzles))
-                                   (%puzzle-opts opts) (%game-opts opts))))
-            (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line))))))
+          (def board-opts
+            (fn (_) (List append (list (pair (lit engine) pl)) (if (null? puzzles) () (list puzzles)) (%puzzle-opts opts) (%game-opts opts))))
+          ; the board has no line to say the endgame tables are building on
+          (match
+            ((eq? board (lit window)) (do (tables-allow-build! #f) (%window-play opts (board-opts))))
+            (board (do (tables-allow-build! #f) (app-run (board-opts))))
+            (#t (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line)))))))
+
+(def %web-ports (list 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 0))
+
+; --window and --web: the board in a window, or in a browser tab, its
+; address printed: the exit status.
+(def %window-play
+  (fn (_ opts args)
+    (def front (if (eq? (%opt opts (lit front)) (lit web)) Web Sdl))
+    (when (eq? front Web) (Web listen! ((fn (_ a) (if (null? a) "127.0.0.1" a)) (%opt opts (lit listen))) %web-ports))
+    (if (if (eq? front Sdl) (not (Sdl available?)) #f)
+      (do (%say 2 "x-chess: no SDL3 to open a window with; --web plays in a browser tab\n") 1)
+      ((fn (_ failed)
+         (if (null? failed) 0
+           (do (%say 2 (Str8 append "x-chess: " (if (Err err? failed) (failed msg) (io-display-to-str failed)) "\n")) 1)))
+       (window-run front args)))))
 
 (def %session
   (fn (_ opts)
@@ -263,6 +291,7 @@
     (def io (%io tty))
     (match
       ((not (null? (%opt opts (lit uci)))) (uci-run io ()))
+      ((not (null? (%opt opts (lit front)))) (%game-session io opts () (lit window)))
       (tty (%game-session io opts () (null? (%opt opts (lit line)))))
       (#t ((fn (_ line)
              (match ((null? line) 0)
