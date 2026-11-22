@@ -131,10 +131,10 @@ fetched is kept as `daily.json` in `$XDG_CACHE_HOME/x-chess` or
 set, and said to be.  The first fetch loads the http client and TLS, a
 few seconds more.
 
-    sh tools/puzzle-library.sh lichess_db_puzzle.csv.zst chess/puzzles.csv
+    sh tools/puzzle-library.sh lichess_db_puzzle.csv.zst lib/chess/puzzles.csv
 
 cuts the shipped set again from a newer database; `PER` sets how many
-of each theme and band.  It writes beside it `chess/puzzles.counts`,
+of each theme and band.  It writes beside it `lib/chess/puzzles.counts`,
 how many puzzles have each theme in each band, which the choice shows.
 
 You play the side to move.  A right move is answered with the
@@ -301,9 +301,9 @@ in five, and one or two where captures abound.
 
 ## Install
 
-It needs x-lang at the release `lang.xon` declares.
+It needs x-lang at the release `bundle.xon` declares.
 
-    make install          # into <share>/langs/chess, where x -l looks
+    make install          # into <share>/bundles/chess, where x -l looks
     make test             # the spec suite
     make check            # the suite against tests/contract/known-failures.txt
 
@@ -311,5 +311,5 @@ It needs x-lang at the release `lang.xon` declares.
 
 MIT No Attribution (MIT-0). See [LICENSE](LICENSE).
 
-The 781 numbers in `chess/book.x` are the Polyglot book format's published
+The 781 numbers in `lib/chess/book.x` are the Polyglot book format's published
 constants, which every reader of a Polyglot book carries.

@@ -3,7 +3,7 @@
 #
 # Cuts the puzzles x-chess ships from the lichess puzzle database
 # (https://database.lichess.org/#puzzles, CC0), DATABASE its .csv or
-# .csv.zst, into CSV (chess/puzzles.csv).  Each puzzle is filed under the
+# .csv.zst, into CSV (lib/chess/puzzles.csv).  Each puzzle is filed under the
 # first of these themes it has:
 #
 #   mateIn5 mateIn4 mateIn3 mateIn2 mateIn1 fork pin skewer
@@ -16,7 +16,7 @@
 # 90 or less) are kept.  They are written in the database's form, header
 # first, easiest first, with no game link or opening tags.
 #
-# Beside CSV, its .counts (chess/puzzles.counts) gives how many of the
+# Beside CSV, its .counts (lib/chess/puzzles.counts) gives how many of the
 # puzzles have each theme in each band, a line each:
 #
 #   THEME LOW HIGH COUNT
