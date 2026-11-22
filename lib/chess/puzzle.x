@@ -13,7 +13,7 @@
 ; mate in the moves left is right, chess/mate finding the defence.
 ;
 ; Puzzles come from the set here, made for this bundle, from the library
-; cut from the lichess database that the bundle ships (chess/puzzles.csv,
+; cut from the lichess database that the bundle ships (lib/chess/puzzles.csv,
 ; tools/puzzle-library.sh), or from any file of lines of the lichess
 ; puzzle database's CSV (PuzzleId,FEN,Moves,Rating,...,Themes,
 ; ...), whose FEN is the position before the opponent's move that sets
@@ -30,6 +30,7 @@
 (import x/core/doors int/ int% str-make str-byte-sub io-display-to-str)
 (import chess/mate mate-forced)
 (import x/sys/file)
+(import x/sys/bundle)
 (import x/sys/gc)
 (import x/type/dict)
 
@@ -296,13 +297,12 @@
 
 ; --- the library --------------------------------------------------------------------
 
-; lint-known: %lang-root
-; The path of the puzzles the bundle ships, or () when it was not started
-; as a lang and so does not know where it is.
+; The path of the puzzles the bundle ships, or () when it was not loaded
+; as a bundle and so does not know where it is.
 (def puzzle-library
   (fn (_)
-    (def root (guard (e ()) %lang-root))
-    (if (str? root) (Str8 append root "/chess/puzzles.csv") ())))
+    (def root (Bundle root "chess"))
+    (if (str? root) (Str8 append root "/lib/chess/puzzles.csv") ())))
 
 ; How many of the puzzles in the CSV at PATH have each theme in each
 ; band, from the .counts file beside it (tools/puzzle-library.sh writes

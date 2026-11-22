@@ -44,7 +44,8 @@
 
 ; lint-known: Json
 ; The puzzle TEXT holds, lichess's puzzle of the day as JSON, or () when
-; it does not read as one.
+; it does not read as one.  The blanks round it are trimmed first: Json
+; takes none after the value.
 (def daily-from-text
   (fn (_ text)
     (import x/codec/json)
@@ -55,7 +56,7 @@
          (if (if (str? fen) (pair? line) #f)
            (puzzle-make fen line "the lichess puzzle of the day" (pz get "rating") (pz get "id") (pz get "themes"))
            ()))
-       ((Json parse text) get "puzzle")))))
+       ((Json parse (Str8 trim text)) get "puzzle")))))
 
 ; The text of the file at PATH, or () when it cannot be read.
 (def %kept

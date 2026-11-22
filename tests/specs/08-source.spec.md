@@ -19,7 +19,7 @@ clause in chess/ has one.
           (List append acc (List filter (fn (_ c) (if (pair? c) (< 2 (size c)) #f)) (rest f)))
           acc)))))
 (write (List map
-  (fn (_ file) (pair file (List length (walk (tok-read-str (%base) (Str8 append (File read-all (Str8 append "chess/" file)) " ")) ()))))
+  (fn (_ file) (pair file (List length (walk (tok-read-str (%base) (Str8 append (File read-all (Str8 append "lib/chess/" file)) " ")) ()))))
   (list "app.x" "base.x" "board.x" "book.x" "cli.x" "engine.x" "game.x" "match.x" "mate.x" "play.x" "player.x" "pst.x" "puzzle.x" "daily.x" "record.x" "san.x" "search.x" "show.x" "tables.x" "tui.x" "uci.x")))
 ```
 ---
