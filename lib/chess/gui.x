@@ -472,27 +472,23 @@
     ; unit vector in 1/1024
     (def ux (int/ (* dx 64) len))
     (def uy (int/ (* dy 64) len))
-    (def hl (int/ (* %sq 256 34) 100))
-    (def hw (int/ (* %sq 256 22) 100))
-    (def base (pair (- (first q) (int/ (* ux hl) 1024)) (- (rest q) (int/ (* uy hl) 1024))))
-    (def start (pair (+ (first p) (int/ (* ux (* %sq 256)) 4096)) (+ (rest p) (int/ (* uy (* %sq 256)) 4096))))
-    (def tip (pair (- (first q) (int/ (* ux (* %sq 256)) 10240)) (- (rest q) (int/ (* uy (* %sq 256)) 10240))))
+    ; PCT hundredths of a square, in 256ths of a pixel
+    (def part (fn (_ pct) (int/ (* %sq 256 pct) 100)))
+    ; the point D along the way from PT
+    (def along (fn (_ pt d) (pair (+ (first pt) (int/ (* ux d) 1024)) (+ (rest pt) (int/ (* uy d) 1024)))))
+    (def start (along p (part 22)))
+    (def tip (along q (- 0 (part 12))))
+    (def base (along tip (- 0 (part 36))))
+    (def sw (part 10))
+    (def hw (part 26))
+    ; the point W across from PT, to the right of the way for S 1, the left for -1
+    (def side (fn (_ pt w s) (pair (+ (first pt) (* s (int/ (* uy w) 1024))) (- (rest pt) (* s (int/ (* ux w) 1024))))))
+    ; one outline: the shaft's right edge, the head, the shaft's left edge
     (Shape fill! c
-      (list (List append
-              (%band start base (int/ (* %sq 256 9) 100) ux uy)
-              (list (pair (+ (first base) (int/ (* uy hw) 1024)) (- (rest base) (int/ (* ux hw) 1024)))
-                    tip
-                    (pair (- (first base) (int/ (* uy hw) 1024)) (+ (rest base) (int/ (* ux hw) 1024))))))
+      (list (list (side start sw -1) (side start sw 1) (side base sw 1) (side base hw 1)
+                  tip
+                  (side base hw -1) (side base sw -1)))
       colour)))
-
-; The shaft of an arrow from A to B, HW either side: its corners at B, then
-; back to A, wound as the head is so that the two are one outline.
-(def %band
-  (fn (_ a b hw ux uy)
-    (def ox (int/ (* uy hw) 1024))
-    (def oy (int/ (* ux hw) 1024))
-    (list (pair (- (first a) ox) (+ (rest a) oy)) (pair (+ (first a) ox) (- (rest a) oy))
-          (pair (+ (first b) ox) (- (rest b) oy)))))
 
 (def %isqrt
   (fn (_ n)
