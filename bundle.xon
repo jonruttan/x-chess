@@ -8,6 +8,6 @@
 ; ambient: the terminal and the clock, none of the tower.
 (dialect he)
 
-(requires-release "v0.60.0")
+(requires-release "v0.61.0")
 
 (entry run)
