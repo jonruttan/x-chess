@@ -85,7 +85,8 @@
 (def %suggest 41)     ; whether the engine suggests your moves
 (def %suggested 42)   ; its suggestions: (FEN done? rows), a row (score move sans depth), or ()
 (def %marked 43)      ; the move the board marks as a hint, or 0, set as it is drawn
-(def %slots 44)
+(def %settings 44)   ; whether the settings box is shown
+(def %slots 45)
 
 (def %get (fn (_ st i) (Vector ref i st)))
 (def %max (fn (_ a b) (if (< a b) b a)))
@@ -121,6 +122,7 @@
     (%put! st %suggest #f)
     (%put! st %coach (opt (lit coach) #f))
     (%put! st %choose #f)
+    (%put! st %settings #f)
     (%put! st %band 0)
     (%put! st %record-path (opt (lit record) (record-path)))
     (%put! st %daily (opt (lit daily) (pair (daily-path) daily-fetch)))
@@ -650,6 +652,61 @@
       ((null? c) (%put! st %choose #f))
       (#t (do (%put! st %choose #f) (%start-chosen! st (List ref 1 c)))))))
 
+; --- the settings box ---------------------------------------------------------------
+
+; The engine's times the box offers: the key, the seconds.
+(def %times (list (pair "1" 1) (pair "2" 2) (pair "5" 5) (pair "0" 10)))
+
+; KEY pressed with the settings shown: w b a the side you play, a time's
+; key the engine's time, v j t s l as in the game; any other closes the
+; box.
+(def %settings-key!
+  (fn (_ st key)
+    (def time (if (str? key) (List find (fn (_ t) (str=? (first t) key)) %times) ()))
+    (match
+      ((%is? key "w") (do (%put! st %human (lit white)) (%put! st %view 0) (%put! st %expect ())))
+      ((%is? key "b") (do (%put! st %human (lit black)) (%put! st %view 8) (%put! st %expect ())))
+      ((%is? key "a") (do (%put! st %human (lit both)) (%put! st %expect ())))
+      ((not (null? time)) (%put! st %ms (* 1000 (rest time))))
+      ((%is? key "v") (%put! st %view (- 8 (%get st %view))))
+      ((%is? key "j") (%coach! st))
+      ((%is? key "t") (%put! st %show-think (not (%get st %show-think))))
+      ((%is? key "s") (%suggest! st))
+      ((%is? key "l") (%analyse! st))
+      (#t (%put! st %settings #f)))))
+
+; A box's items, each (LINE TEXT KEY PILLS): LINE as the terminal shows
+; it; TEXT as a window does, KEY what a click on the row presses (or ()),
+; PILLS the buttons at its end, each (LABEL KEY ON?).
+(def %line-item (fn (_ line) (list line line () ())))
+(def %key-item (fn (_ line key) (list line line key ())))
+(def %pills-item (fn (_ line text pills) (list line text () pills)))
+
+(def %on-off (fn (_ on) (if on "on" "off")))
+
+(def %toggle-item
+  (fn (_ key what label on)
+    (%pills-item (Str8 append key "        " what ": " (%on-off on)) label (list (list (%on-off on) key on)))))
+
+(def %settings-items
+  (fn (_ st)
+    (def h (%get st %human))
+    (def secs (int/ (%get st %ms) 1000))
+    (list (%line-item "Settings") (%line-item "")
+          (%pills-item (Str8 append "w b a    you play " (match ((eq? h (lit both)) "both sides") ((eq? h (lit black)) "black") (#t "white")))
+            "You play"
+            (list (list "White" "w" (eq? h (lit white))) (list "Black" "b" (eq? h (lit black))) (list "Both" "a" (eq? h (lit both)))))
+          (%pills-item (Str8 append "1 2 5 0  the engine thinks " (io-display-to-str secs) " s")
+            "The engine thinks"
+            (List map (fn (_ t) (list (Str8 append (io-display-to-str (rest t)) " s") (first t) (= secs (rest t)))) %times))
+          (%pills-item "v        turn the board" "The board" (list (list "Turn" "v" #f)))
+          (%toggle-item "j" "the coach" "The coach" (%get st %coach))
+          (%toggle-item "t" "the engine's thinking shown" "The engine's thinking" (%get st %show-think))
+          (%toggle-item "s" "suggested moves" "Suggested moves" (%get st %suggest))
+          (%toggle-item "l" "analysis" "Analysis" (%get st %analyse))
+          (%line-item "")
+          (%line-item "any other key: back to the game"))))
+
 ; Fetch the puzzle of the day once the screen says so: the fetch takes
 ; seconds.
 (def %ask-daily!
@@ -780,11 +837,16 @@
     (when (if (< -1 f) (if (< f 8) (if (< -1 r) (< r 8) #f) #f) #f)
       (%put! st %cursor (sq-make f r)))))
 
-; Go back or forward through the game: the ply shown.
+; The ply shown: the game's last, or the one looked back at.
+(def %review-at
+  (fn (_ st) (if (< (%get st %review) 0) (List length (game-moves (%get st %game))) (%get st %review))))
+
+; Go back or forward through the game K plies: the ply shown.  A move
+; clicked in a window's list, (ply N), goes to the ply after it.
 (def %review!
   (fn (_ st k)
     (def n (List length (game-moves (%get st %game))))
-    (def at (if (< (%get st %review) 0) n (%get st %review)))
+    (def at (%review-at st))
     (def to (%max 0 (%min n (+ at k))))
     (%put! st %review (if (= to n) -1 to))
     (%put! st %sel -1)
@@ -827,6 +889,7 @@
     (match
       ((not (null? (%get st %command))) (%command-key! st key))
       ((%get st %choose) (%choose-key! st key))
+      ((%get st %settings) (%settings-key! st key))
       ((%get st %help) (%put! st %help #f))
       ((not (null? (%get st %promo))) (%promo-key! st key))
       ((if (pair? key) (eq? (first key) (lit square)) #f) (%square-key! st (List ref 1 key)))
@@ -848,6 +911,8 @@
       ((%is? key "]") (%review! st 1))
       ((if (%is? key "q") #t (eq? key (lit interrupt))) (%put! st %quit #t))
       ((%is? key "?") (%put! st %help #t))
+      ((%is? key ",") (%put! st %settings #t))
+      ((if (pair? key) (eq? (first key) (lit ply)) #f) (%review! st (- (List ref 1 key) (%review-at st))))
       ((%is? key "u") (if (null? (%get st %puzzle)) (%undo! st) (%put! st %msg "In a puzzle: z goes on to the next one.")))
       ((%is? key "n") (%new-game! st ()))
       ((%is? key "v") (%put! st %view (- 8 (%get st %view))))
@@ -1426,7 +1491,7 @@
         "i      hint               m  the engine moves now"
         "l      analyse            t  show or hide thinking"
         "z      puzzles            j  the coach, on or off"
-        "s      suggested moves, on or off"
+        "s      suggested moves    ,  settings"
         "[ ]    back, forward      Home End  first, last"
         "p      letters or figures q  quit"
         ""
@@ -1487,7 +1552,8 @@
                    (#t %puzzle-keys-line)))
           (Style make (if (if (null? (%get st %command)) (str=? (%get st %input) "") #f) (list (lit dim)) ()) () ()))
         (when (%get st %help) (%draw-help! st screen))
-        (when (%get st %choose) (%draw-choice! st screen))))))
+        (when (%get st %choose) (%draw-choice! st screen))
+        (when (%get st %settings) (%draw-box! st screen 58 (List map first (%settings-items st))))))))
 
 ; How many of the library's puzzles have each theme in each band, read
 ; the first time the choice is shown: see puzzle-counts.
@@ -1499,9 +1565,9 @@
 
 ; The choice of puzzles z shows, in the band chosen: how many there are
 ; of each, and how many of each you have solved of those you finished.
-(def %draw-choice! (fn (_ st screen) (%draw-box! st screen 58 (%choice-lines st))))
+(def %draw-choice! (fn (_ st screen) (%draw-box! st screen 58 (List map first (%choice-items st)))))
 
-(def %choice-lines
+(def %choice-items
   (fn (_ st)
     (def b (List ref (%get st %band) %bands))
     (def counts (%library-counts st))
@@ -1513,14 +1579,15 @@
       (fn (_ c)
         ((fn (_ s) (if (= 0 (rest s)) "" (Str8 append (io-display-to-str (first s)) " of " (io-display-to-str (rest s)) " solved")))
          (record-score (%record-of st) (List ref 1 c) (List ref 1 b) (List ref 2 b)))))
-    (def lines
-      (List append (list (Str8 append "Puzzles, " (first b)) "")
-        (List map (fn (_ c) (Str8 append (first c) "   " (Str8 pad-right 20 #\space (List ref 2 c)) (count c) "   " (score c))) %choices)
-        (list "x   x-chess's own, unrated" "l   lichess's puzzle of the day" ""
-              (Str8 append "o   " (rest (Assoc find (%get st %order) %orders)))
-              (if (%get st %skip) "u   those solved passed over" "u   those solved set again")
-              "" "< >  another rating · any other key: back to the game")))
-    lines))
+    ((fn (_ title)
+       (List append (list (%pills-item title title (list (list "<" "<" #f) (list ">" ">" #f))) (%line-item ""))
+         (List map (fn (_ c) (%key-item (Str8 append (first c) "   " (Str8 pad-right 20 #\space (List ref 2 c)) (count c) "   " (score c)) (first c)))
+           %choices)
+         (list (%key-item "x   x-chess's own, unrated" "x") (%key-item "l   lichess's puzzle of the day" "l") (%line-item "")
+               (%key-item (Str8 append "o   " (rest (Assoc find (%get st %order) %orders))) "o")
+               (%key-item (if (%get st %skip) "u   those solved passed over" "u   those solved set again") "u")
+               (%line-item "") (%line-item "< >  another rating · any other key: back to the game"))))
+     (Str8 append "Puzzles, " (first b)))))
 
 ; --- the view a window draws -------------------------------------------------------
 ;
@@ -1542,7 +1609,7 @@
 ;                 the heading says, and rows (MOVE SCORE LINE)
 ;   over          the result said, or ()
 ;   help          whether the keys are asked for: each front end has its own
-;   choice        the lines of the box shown, or ()
+;   choice        the items of the box shown, as %settings-items, or ()
 ;   puzzle review whether a puzzle is set; the ply looked back at, or -1
 (def tui-view
   (fn (_ st)
@@ -1602,7 +1669,7 @@
               (if (null? s) () (List ref 2 s))))
           (pair (lit over) (if (null? over) () (Str8 append (%result-text (first over)) " by " (rest over))))
           (pair (lit help) (%get st %help))
-          (pair (lit choice) (if (%get st %choose) (%choice-lines st) ()))
+          (pair (lit choice) (match ((%get st %choose) (%choice-items st)) ((%get st %settings) (%settings-items st)) (#t ())))
           (pair (lit puzzle) (not (null? (%get st %puzzle))))
           (pair (lit review) (%get st %review)))))
 

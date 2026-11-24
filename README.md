@@ -54,6 +54,8 @@ commands:
     l        analyse: the engine thinks until a key is pressed, and both
              sides are yours
     t        show or hide the thinking
+    ,        settings: your side, the engine's time, the coach, the
+             thinking, suggestions and analysis
     z        puzzles (below)
     j        the coach, on or off (below)
     s        the engine's suggested moves, on or off (below)
@@ -76,8 +78,13 @@ when SDL3 is not there (`--listen ADDRESS` to listen on other than
 clicked and then its square, or dragged there, and a move slides.  The
 bar beside the board eases to each new score, and the panel holds the
 score, the engine's suggestions (s), its thinking and the moves.  The
-buttons under the panel press n, u, v, i, m, s, z and ?; every key the
-terminal takes works the same, typed moves too.
+buttons under the panel press n, u, the settings' key (,), i, m, s, z
+and ?.  A move in the list is clicked to look back at it, and the
+arrows by MOVES step back and forward, to the first and the last.  The
+puzzles and the settings are boxes of rows and buttons to click, and a
+click outside a box closes it; the game's end offers a new game or a
+move taken back.  Every key the terminal takes works the same, typed
+moves too.
 
 ## The score
 
