@@ -28,7 +28,9 @@
 (import x/sys/web)
 (import x/sys/posix)
 (import x/sys/gc)
-(import x/core/doors int& int/)
+(import x/sys/file)
+(import x/core/doors int& int/ io-display-to-str)
+(import chess/tables chess-cache-dir chess-dir-make!)
 (import chess/game game-pos)
 (import chess/board move-from move-to)
 (import chess/player player-think player-quit!)
@@ -58,7 +60,10 @@
 (def %view 11)    ; the side the board was last drawn with at the bottom
 (def %collected 12) ; the clock at the last collect
 (def %polled 13)  ; the clock when the events were last taken during a search
-(def %slots 14)
+(def %log 14)      ; the slow-moments log, a file descriptor, or ()
+(def %doing 15)    ; what the window is busy with, for the log
+(def %pumped 16)   ; the clock when the events were last taken
+(def %slots 17)
 
 (def %get (fn (_ w i) (Vector ref i w)))
 (def %put! (fn (_ w i v) (Vector set! i v w)))
@@ -143,9 +148,37 @@
              (%at w (List ref 2 e) (List ref 3 e)))))
       (#t ()))))
 
-; Every event waiting taken.
-(def %pump!
+; --- the slow-moments log -----------------------------------------------------------
+
+; A line in the log, when there is one.
+(def %note!
+  (fn (_ w text)
+    ((fn (_ fd) (unless (null? fd) (guard (e ()) (Sys fd-write fd (Str8 append (io-display-to-str (%ms)) " " text "\n")))))
+     (%get w %log))))
+
+(def %doing! (fn (_ w label) (%put! w %doing label)))
+
+; The log kept in the cache directory, opened afresh, or () when it cannot be.
+(def %log-open
+  (fn (_)
+    (def dir (chess-cache-dir))
+    (if (null? dir) ()
+      (guard (e ())
+        (do (chess-dir-make! dir)
+            (File open (Str8 append dir "/window.log") (list (lit wronly) (lit creat) (lit trunc)) 420))))))
+
+(def %pump-all!
   (fn (self w) ((fn (_ e) (unless (null? e) (do (%event! w e) (self w)))) (%next-event w))))
+
+; Every event waiting taken; a long wait since the last time is noted
+; with what the window was doing.
+(def %pump!
+  (fn (_ w)
+    (def now (%ms))
+    (def gap (- now (%get w %pumped)))
+    (when (< 250 gap) (%note! w (Str8 append "input waited " (io-display-to-str gap) " ms during " (%get w %doing))))
+    (%put! w %pumped now)
+    (%pump-all! w)))
 
 ; --- drawing ------------------------------------------------------------------------
 
@@ -175,7 +208,10 @@
     (when (< 999 t) (%put! w %slide ()))
     (Vector set! 3 (if (< 999 t) () (list (first s) (List ref 1 s) t)) ui)
     (def moving (gui-draw! (%get w %gui) v ui))
+    (def shown (%ms))
     ((%get w %front) show! (%get w %win) (List ref 2 (gui-canvas (%get w %gui))))
+    ((fn (_ took) (when (< 50 took) (%note! w (Str8 append "showing the frame took " (io-display-to-str took) " ms"))))
+     (- (%ms) shown))
     (%put! w %drawn now)
     (%put! w %dirty #f)
     (when (< 250 (- now (%get w %collected))) (do (Heap collect) (%put! w %collected (%ms))))
@@ -223,8 +259,12 @@
     (def p (game-pos g))
     (tui-thinking-clear! st)
     (%frame! w)
+    (def began (%ms))
     (def r (player-think (tui-engine st) g (if (= ms 0) 64 (tui-depth st)) ms poll
              (fn (_ r) (tui-report! st p r) (%frame! w))))
+    ((fn (_ took) (when (if (< 0 ms) (< (+ ms 1000) took) #f)
+                    (%note! w (Str8 append "a " (io-display-to-str ms) " ms search took " (io-display-to-str took) " ms"))))
+     (- (%ms) began))
     (Heap collect)
     r))
 
@@ -313,9 +353,9 @@
     (def wanted (tui-suggest-wanted st))
     (def p (if (null? wanted) (tui-unscored st) ()))
     (match
-      ((not (null? wanted)) (%suggest! w wanted))
-      ((not (null? p)) (%assess! w p))
-      (#t (%wait! w)))))
+      ((not (null? wanted)) (do (%doing! w "suggesting") (%suggest! w wanted)))
+      ((not (null? p)) (do (%doing! w "scoring") (%assess! w p)))
+      (#t (do (%doing! w "waiting") (%wait! w))))))
 
 (def %loop
   (fn (self w)
@@ -324,14 +364,15 @@
     (match
       ((tui-quit? st) ())
       ((not (null? (%get w %queue)))
-        ((fn (_ item) (%put! w %queue (rest (%get w %queue))) (%act! w item) (self w)) (first (%get w %queue))))
+        ((fn (_ item) (%put! w %queue (rest (%get w %queue))) (%doing! w "acting") (%act! w item) (self w)) (first (%get w %queue))))
       ((if (%get w %dirty) #t (%moving? w))
-        (do ((fn (_ left) (when (< 0 left) (Sys usleep (* 1000 left)))) (- %frame-ms (- (%ms) (%get w %drawn))))
+        (do (%doing! w "drawing")
+            ((fn (_ left) (when (< 0 left) (Sys usleep (* 1000 left)))) (- %frame-ms (- (%ms) (%get w %drawn))))
             (%frame! w)
             (self w)))
       ((tui-work! st) (do (%put! w %dirty #t) (self w)))
-      ((tui-engine-to-move? st) (do (%engine-move! w) (self w)))
-      ((tui-analysing? st) (do (%think w (%waiting-poll w) 0) (%put! w %dirty #t) (%wait! w) (self w)))
+      ((tui-engine-to-move? st) (do (%doing! w "the engine's move") (%engine-move! w) (self w)))
+      ((tui-analysing? st) (do (%doing! w "analysis") (%think w (%waiting-poll w) 0) (%put! w %dirty #t) (%wait! w) (self w)))
       (#t (do (%idle! w) (self w))))))
 
 ; Play in a window drawn through FRONT, Sdl or Web, with OPTS as
@@ -351,9 +392,16 @@
     (%put! w %view 0)
     (%put! w %collected 0)
     (%put! w %polled 0)
+    (%put! w %log (%log-open))
+    (%put! w %doing "starting")
+    (%put! w %pumped (%ms))
     (%put! w %win (front scaling! (front open "x-chess" (gui-width) (gui-height) 1) (lit fit)))
+    ; a window opened from a terminal is left behind it, the keyboard with
+    ; the terminal
+    (when (eq? front Sdl) (Sdl raise! (%get w %win)))
     (def failed (guard (e e) (do (%loop w) ())))
     (front close (%get w %win))
+    (unless (null? (%get w %log)) (guard (e ()) (File close (%get w %log))))
     (player-quit! (tui-engine (%get w %st)))
     failed))
 
