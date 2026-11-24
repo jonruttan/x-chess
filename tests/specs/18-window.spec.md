@@ -70,7 +70,7 @@ window's events, needs a window and is not run here.
 ### a point of the picture: a square as the board is seen, a button, or nothing
 
 ```chess
-(def g (gui-make))
+(def g (gui-make 1))
 (def white (tui-view (tui-make ())))
 (def black (tui-view (tui-make (list (pair (lit side) (lit black))))))
 (write (list (gui-at g white 96 100) (gui-at g black 96 100) (gui-at g white 735 690) (gui-at g white 10 10)))
@@ -83,7 +83,7 @@ window's events, needs a window and is not run here.
 ### a move in the list is a key that looks back at it; the steps go back and forward
 
 ```chess
-(def g (gui-make))
+(def g (gui-make 1))
 (def st (tui-make (list (pair (lit side) (lit both)))))
 (List for-each (fn (_ sq) (tui-key! st (list (lit square) sq))) (list 20 52 100 68 6 37))
 (def v (tui-view st))
@@ -103,7 +103,7 @@ window's events, needs a window and is not run here.
 ### the choice of puzzles: a row is its key, the arrows step the rating, outside closes it
 
 ```chess
-(def g (gui-make))
+(def g (gui-make 1))
 (def st (tui-make ()))
 (tui-key! st "z")
 (def v (tui-view st))
@@ -138,7 +138,7 @@ window's events, needs a window and is not run here.
 ### the game's end has buttons: a new game, a move taken back
 
 ```chess
-(def g (gui-make))
+(def g (gui-make 1))
 (def st (tui-make (list (pair (lit side) (lit both)))))
 (List for-each (fn (_ sq) (tui-key! st (list (lit square) sq))) (list 21 37 100 84 22 54 115 55))
 (def v (tui-view st))
@@ -154,7 +154,7 @@ window's events, needs a window and is not run here.
 ```chess
 (def st (tui-make ()))
 (import gfx/canvas)
-(def g (gui-make))
+(def g (gui-make 1))
 (gui-draw! g (tui-view st) (Vector of -1 -1 -1 ()))
 (def c (gui-canvas g))
 (write (list (first c) (first (rest c)) (Canvas pixel c 96 500) (Canvas pixel c 96 420)))
@@ -162,4 +162,44 @@ window's events, needs a window and is not run here.
 ---
 ```output
 (1180 760 (122 149 113 255) (234 226 206 255))
+```
+
+### drawn at 2, the picture is twice as wide and high, and a point of it is read at 1
+
+```chess
+(def st (tui-make ()))
+(import gfx/canvas)
+(def g (gui-make 2))
+(def v (tui-view st))
+(gui-draw! g v (Vector of -1 -1 -1 ()))
+(def c (gui-canvas g))
+(write (list (gui-scale g) (first c) (first (rest c)) (Canvas pixel c 192 1000) (Canvas pixel c 192 840) (gui-at g v 96 100)))
+```
+---
+```output
+(2 2360 1520 (122 149 113 255) (234 226 206 255) ('square 112))
+```
+
+### a frame puts back only what the last drew over the still, and is the same as one drawn whole
+
+```chess
+(import gfx/canvas)
+(def st (tui-make (list (pair (lit side) (lit both)))))
+(List for-each (fn (_ sq) (tui-key! st (list (lit square) sq))) (list 21 37 100 84 22 54 115 55))
+(def v (tui-view st))
+(def a (gui-make 1))
+(gui-draw! a v (Vector of 300 390 -1 ()))
+(def lit-new (Canvas pixel (gui-canvas a) 260 392))
+(gui-draw! a v (Vector of 820 250 -1 ()))
+(def settle (fn (_ g) (let go ((n 0)) (when (if (< n 40) (gui-draw! g v (Vector of 100 100 -1 ())) #f) (go (+ n 1))))))
+(settle a)
+(def b (gui-make 1))
+(settle b)
+(def ca (gui-canvas a))
+(def cb (gui-canvas b))
+(write (list (equal? lit-new (Canvas pixel cb 260 392)) (equal? (List ref 2 ca) (List ref 2 cb))))
+```
+---
+```output
+(#f #t)
 ```
