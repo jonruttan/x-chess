@@ -57,7 +57,7 @@
 (def %seen 8)     ; (PLY . MOVE) of the position last drawn
 (def %dropped 9)  ; whether the last move was a piece let go, which does not slide
 (def %slide 10)   ; the move sliding: (TO FROM START-MS), or ()
-(def %view 11)    ; the side the board was last drawn with at the bottom
+(def %view 11)    ; the view last drawn, what a point of the window is read from, or ()
 (def %collected 12) ; the clock at the last collect
 (def %polled 13)  ; the clock when the events were last taken during a search
 (def %log 14)      ; the slow-moments log, a file descriptor, or ()
@@ -117,17 +117,20 @@
 
 (def %queue! (fn (_ w item) (%put! w %queue (List append (%get w %queue) (list item)))))
 
-(def %at (fn (_ w x y) (gui-at (%get w %view) x y)))
+(def %at (fn (_ w x y) (gui-at (%get w %gui) (%get w %view) x y)))
 
 ; Event E taken: a key or a press queued, the pointer moved.
 (def %event!
   (fn (_ w e)
     (def kind (first e))
     (def ui (%get w %ui))
+    ; drawn again when a piece is dragged or what is under the pointer
+    ; changes: the ui's slot 4 keeps what was
     (def point!
       (fn (_ x y)
-        (unless (if (< -1 (Vector ref 2 ui)) #f (equal? (%at w x y) (%at w (Vector ref 0 ui) (Vector ref 1 ui))))
-          (%put! w %dirty #t))
+        (def hit (%at w x y))
+        (unless (if (< -1 (Vector ref 2 ui)) #f (equal? hit (Vector ref 4 ui))) (%put! w %dirty #t))
+        (Vector set! 4 hit ui)
         (Vector set! 0 x ui)
         (Vector set! 1 y ui)))
     (match
@@ -140,7 +143,8 @@
             ((fn (_ hit)
                (match ((null? hit) ())
                       ((eq? (first hit) (lit square)) (%queue! w (list (lit press) (List ref 1 hit))))
-                      (#t (%queue! w (List ref 1 hit)))))
+                      ((eq? (first hit) (lit key)) (%queue! w (List ref 1 hit)))
+                      (#t ())))
              (%at w (List ref 2 e) (List ref 3 e)))))
       ((if (eq? kind (lit mouse-up)) (eq? (List ref 1 e) (lit left)) #f)
         (do (point! (List ref 2 e) (List ref 3 e))
@@ -201,7 +205,7 @@
     (def now (%ms))
     (def v (tui-view (%get w %st)))
     (def ui (%get w %ui))
-    (%put! w %view (rest (Assoc find (lit view) v)))
+    (%put! w %view v)
     (%follow! w v now)
     (def s (%get w %slide))
     (def t (if (null? s) 1000 (int/ (* 1000 (- now (List ref 2 s))) %slide-ms)))
@@ -384,12 +388,12 @@
     (%put! w %front front)
     (%put! w %st (tui-make opts))
     (%put! w %gui (gui-make))
-    (%put! w %ui (Vector of -1 -1 -1 ()))
+    (%put! w %ui (Vector of -1 -1 -1 () ()))
     (%put! w %dirty #t)
     (%put! w %drawn 0)
     (%put! w %seen (pair -1 0))
     (%put! w %dropped #f)
-    (%put! w %view 0)
+    (%put! w %view ())
     (%put! w %collected 0)
     (%put! w %polled 0)
     (%put! w %log (%log-open))

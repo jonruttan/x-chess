@@ -10,8 +10,11 @@
 ; %height: the board on the left with the bar beside it and a strip for
 ; each side, and on the right the panel of cards (the game, the score,
 ; the suggestions, the engine's thinking, the moves) over a row of
-; buttons.  It also says what a point of the picture is: a square, a
-; button's key, or nothing.  The window (chess/window) owns the loop.
+; buttons.  A box over it all, the keys or what the view offers (the
+; puzzles, the settings), has rows and pills to click.  It also says what
+; a point of the picture is: a square, a key a click presses (a button,
+; a move in the list, a box's row), or nothing.  The window
+; (chess/window) owns the loop.
 ;
 ; The pieces are this file's own outlines, drawn once a size: a profile
 ; a piece is symmetric about, mirrored, or the knight's whole outline,
@@ -56,7 +59,7 @@
 (def %score-w 240)
 
 (def %buttons
-  (list (list "New" "n") (list "Take back" "u") (list "Turn" "v") (list "Hint" "i")
+  (list (list "New" "n") (list "Take back" "u") (list "Settings" ",") (list "Hint" "i")
         (list "Move now" "m") (list "Suggest" "s") (list "Puzzles" "z") (list "Keys" "?")))
 
 ; --- colours ------------------------------------------------------------------------
@@ -376,11 +379,12 @@
 ; the ring of a capture, the edge of the square a piece would drop on,
 ; and the glow of a king in check, 15 the picture between moves (see
 ; %still) and 16 what it was drawn for, 17 and 18 the bars' fills whole:
-; beside the board, and in the score card.
+; beside the board, and in the score card, 19 the box last shown and
+; where its rows and pills stand (see %box-layout).
 
 (def gui-make
   (fn (_)
-    (def g (Vector make 19 ()))
+    (def g (Vector make 20 ()))
     (Vector set! 0 (Vector make 64 ()) g)
     (Vector set! 1 0 g)
     (Vector set! 2 (Canvas make %width %height) g)
@@ -457,16 +461,137 @@
 (def %in?
   (fn (_ x y bx by w h) (if (< x bx) #f (if (< y by) #f (if (< x (+ bx w)) (< y (+ by h)) #f)))))
 
-; What is at X Y of the picture: (square SQ), (key KEY) for a button, or ().
+; The buttons that step through the game, at the moves card's title:
+; (LABEL KEY).
+(def %nav (list (list "|<" (lit home)) (list "<" "[") (list ">" "]") (list ">|" (lit end))))
+(def %nav-w 34)
+(def %nav-h 22)
+
+(def %nav-xy
+  (fn (_ my i) (pair (+ (- (+ %px %pw) 14 (* 4 %nav-w) 18) (* i (+ %nav-w 6))) (+ my 8))))
+
+; The first of LIST whose rectangle, by RECT of an index, holds X Y, as
+; its index, or ().
+(def %index-at
+  (fn (_ n rect x y)
+    (List find (fn (_ i) ((fn (_ r) (%in? x y (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r))) (rect i))) (List range 0 n))))
+
+; The box shown over the picture, (ITEMS): the keys box, or the items the
+; view says (see tui-view's choice); () for none.
+(def %box-items
+  (fn (_ v)
+    (match ((null? v) ())
+           ((%view-of v (lit help)) %keys-items)
+           (#t (%view-of v (lit choice))))))
+
+(def %row-h 21)
+(def %pill-h 19)
+(def %pill-w (fn (_ label) (+ 18 (%text-w label 10))))
+
+(def %pills-w
+  (fn (_ pills) (List fold (fn (_ n p) (+ n 6 (%pill-w (first p)))) 0 pills)))
+
+; Where ITEMS' box stands: (X Y W H).
+(def %box-at
+  (fn (_ items)
+    (def widest
+      (List fold (fn (_ n it) (%max n (+ (%text-w (List ref 1 it) 10) (if (null? (List ref 3 it)) 0 (+ 24 (%pills-w (List ref 3 it)))))))
+        0 items))
+    (def w (+ widest 64))
+    (def h (+ 48 (* %row-h (List length items))))
+    (list (int/ (- %width w) 2) (%max 10 (int/ (- %height h) 2)) w h)))
+
+; Where the box of ITEMS stands, (BOX ROWS PILLS): BOX its (X Y W H),
+; ROWS each row's band a click takes, PILLS each row's pills' rectangles.
+; Measured once a box and kept in G's slot 19, a point of the picture
+; being asked for at every move of the pointer.
+(def %box-layout
+  (fn (_ g items)
+    (def kept (Vector ref 19 g))
+    (if (if (null? kept) #f (equal? (first kept) items)) (rest kept)
+      ((fn (_ layout) (Vector set! 19 (pair items layout) g) layout)
+       (do (def b (%box-at items))
+           (def right (- (+ (first b) (List ref 2 b)) 32))
+           (def pills
+             (fn (_ i ps)
+               ((fn (self x ws acc)
+                  (if (null? ws) acc
+                    (self (- x (first ws) 6) (rest ws) (pair (list (- x (first ws)) (+ (List ref 1 b) 22 (* i %row-h)) (first ws) %pill-h) acc))))
+                right (List reverse (List map (fn (_ p) (%pill-w (first p))) ps)) ())))
+           (list b
+                 (List map (fn (_ i) (list (+ (first b) 12) (+ (List ref 1 b) 20 (* i %row-h)) (- (List ref 2 b) 24) %row-h))
+                   (List range 0 (List length items)))
+                 (List map (fn (_ i) (pills i (List ref 3 (List ref i items)))) (List range 0 (List length items)))))))))
+
+(def %rect-in? (fn (_ x y r) (%in? x y (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r))))
+
+; The first of RECTS holding X Y, as its index, or ().
+(def %rect-at
+  (fn (_ rects x y) ((fn (self i rs) (match ((null? rs) ()) ((%rect-in? x y (first rs)) i) (#t (self (+ i 1) (rest rs))))) 0 rects)))
+
+; What is at X Y in the box of ITEMS: (key KEY) for a row or a pill,
+; (box) for the rest of it, and outside it (key escape), which closes it.
+(def %box-hit
+  (fn (_ g items x y)
+    (def layout (%box-layout g items))
+    (def i (%rect-at (List ref 1 layout) x y))
+    (def it (if (null? i) () (List ref i items)))
+    (def j (if (null? i) () (%rect-at (List ref i (List ref 2 layout)) x y)))
+    (match
+      ((not (%rect-in? x y (first layout))) (list (lit key) (lit escape)))
+      ((not (null? j)) (list (lit key) (List ref 1 (List ref j (List ref 3 it)))))
+      ((if (null? it) #f (not (null? (List ref 2 it)))) (list (lit key) (List ref 2 it)))
+      (#t (list (lit box))))))
+
+; The moves card's rows as drawn, below MY: (TOP FROM SHOWN), the first
+; row's text at TOP, FROM the index of the first shown, SHOWN those rows.
+(def %moves-at
+  (fn (_ v my)
+    (def b (+ my 36))
+    (def rows (%view-of v (lit rows)))
+    (def ply (%view-of v (lit ply)))
+    (def room (%max 1 (int/ (- %buttons-y 16 b) 22)))
+    (def at (List find-index (fn (_ r) (if (= (rest (List ref 1 r)) ply) #t (= (rest (List ref 2 r)) ply))) rows))
+    (def last-row (if (null? at) (- (List length rows) 1) at))
+    (def from (%max 0 (%min (- (List length rows) room) (- last-row (- room 2)))))
+    (list b from (List take (%min room (- (List length rows) from)) (List drop from rows)))))
+
+(def %move-x (fn (_ k) (+ %px (if (= k 1) 76 186))))
+
+; The move in the moves card at X Y: (ROW COLUMN PLY TOP), ROW the index
+; shown, COLUMN 1 or 2, PLY the ply after it, TOP the first row's text;
+; or ().
+(def %move-under
+  (fn (_ v x y)
+    (def layout (%moves-at v (List ref 2 (%cards v))))
+    (def shown (List ref 2 layout))
+    (def i (%index-at (List length shown) (fn (_ i) (list (+ %px 8) (+ (first layout) (* i 22) -6) (- %pw 16) 22)) x y))
+    (def k (if (null? i) () (List find (fn (_ k) (%in? x y (- (%move-x k) 8) 0 100 %height)) (list 1 2))))
+    (def ply (if (null? k) 0 (rest (List ref k (List ref i shown)))))
+    (if (< 0 ply) (list i k ply (first layout)) ())))
+
+(def %move-hit (fn (_ v x y) ((fn (_ m) (if (null? m) () (List ref 2 m))) (%move-under v x y))))
+; What is at X Y of the picture G drew V on: (square SQ), (key KEY) for
+; button, a move in the list ((ply N) its key) or a box's row, (box) for
+; the rest of a box, or ().  With a box shown, only it is there.
 (def gui-at
-  (fn (_ view x y)
+  (fn (_ g v x y)
+    (def items (%box-items v))
+    (def view (if (null? v) 0 (%view-of v (lit view))))
     (def c (if (< x %bx) -1 (int/ (- x %bx) %sq)))
     (def r (if (< y %by) -1 (int/ (- y %by) %sq)))
+    (def button (fn (_) (%index-at (List length %buttons) (fn (_ i) ((fn (_ p) (list (first p) (rest p) %button-w %button-h)) (%button-xy i))) x y)))
+    (def nav (fn (_) (if (null? v) () (%index-at 4 (fn (_ i) ((fn (_ p) (list (first p) (rest p) %nav-w %nav-h)) (%nav-xy (List ref 2 (%cards v)) i))) x y))))
+    (def move (fn (_) (if (null? v) () (%move-hit v x y))))
+    (def over (if (null? v) () (%over-hit v x y)))
     (match
+      ((not (null? items)) (%box-hit g items x y))
+      ((not (null? over)) (list (lit key) over))
       ((if (< -1 c) (if (< c 8) (if (< -1 r) (< r 8) #f) #f) #f) (list (lit square) (%sq-at view r c)))
-      (#t ((fn (_ i) (if (null? i) () (list (lit key) (List ref 1 (List ref i %buttons)))))
-           (List find (fn (_ i) ((fn (_ p) (%in? x y (first p) (rest p) %button-w %button-h)) (%button-xy i)))
-             (List range 0 (List length %buttons))))))))
+      ((not (null? (button))) (list (lit key) (List ref 1 (List ref (button) %buttons))))
+      ((not (null? (nav))) (list (lit key) (List ref 1 (List ref (nav) %nav))))
+      ((not (null? (move))) (list (lit key) (list (lit ply) (move))))
+      (#t ()))))
 
 ; --- drawing ------------------------------------------------------------------------
 
@@ -631,17 +756,31 @@
 (def %card-titles (list "SUGGESTED" "ENGINE" "MOVES"))
 (def %card-heights (list 112 110 0))
 
+; The key of what is under the pointer, when it is a button's or a step
+; button's in the panel, or "": none with a box shown.
+(def %hover-key
+  (fn (_ g v ui)
+    ((fn (_ h) (if (if (null? h) #f (if (eq? (first h) (lit key)) (not (pair? (List ref 1 h))) #f)) (List ref 1 h) ""))
+     (if (if (null? (%box-items v)) (< %px (Vector ref 0 ui)) #f) (gui-at g v (Vector ref 0 ui) (Vector ref 1 ui)) ()))))
+
 ; The picture of what changes least: the ground, the board and its frame,
 ; the bar's channel, the cards and their titles, the buttons.  It is drawn
 ; again only when what it shows changes: the side below, the cards shown,
-; the button under the pointer, whether suggestions are on.
+; the button under the pointer, whether suggestions are on, whether the
+; game can be stepped back or forward.
 (def %chrome
   (fn (_ g v ui)
     (def view (%view-of v (lit view)))
     (def cards (%cards v))
-    (def hover ((fn (_ h) (if (if (null? h) #f (eq? (first h) (lit key))) (List ref 1 h) "")) (gui-at view (Vector ref 0 ui) (Vector ref 1 ui))))
-    (def key (list view cards hover (%view-of v (lit suggesting))))
+    (def hover (%hover-key g v ui))
+    (def back (< 0 (%view-of v (lit ply))))
+    (def ahead (< -1 (%view-of v (lit review))))
+    (def key (list view cards hover (%view-of v (lit suggesting)) back ahead))
     (def c (Vector ref 8 g))
+    (def button!
+      (fn (_ x y w h label on hot live)
+        (%box! c x y w h 8 (match (on (list 58 86 136)) ((if hot live #f) (list 58 64 78)) (#t (if (< h 30) %card-hi %card))))
+        (%text! g c (+ x (int/ (- w (%text-w label 10)) 2)) (+ y (int/ (- h 10) 2)) label 10 15 (match ((not live) %faint) (hot %ink) (#t %dim)))))
     (unless (equal? key (Vector ref 9 g))
       (do (Canvas fill! c 0 0 %width %height %bg)
           (%box! c (- %bx 6) (- %by 6) (+ 12 (* 8 %sq)) (+ 12 (* 8 %sq)) 8 (list 12 13 16))
@@ -663,11 +802,16 @@
             (fn (_ i)
               (def bt (List ref i %buttons))
               (def xy (%button-xy i))
-              (def on (if (str=? (List ref 1 bt) "s") (%view-of v (lit suggesting)) #f))
-              (def hot (str=? hover (List ref 1 bt)))
-              (%box! c (first xy) (rest xy) %button-w %button-h 8 (match (on (list 58 86 136)) (hot (list 58 64 78)) (#t %card)))
-              (%text! g c (+ (first xy) (int/ (- %button-w (%text-w (first bt) 10)) 2)) (+ (rest xy) 10) (first bt) 10 15 (if hot %ink %dim)))
+              (button! (first xy) (rest xy) %button-w %button-h (first bt)
+                (if (str=? (List ref 1 bt) "s") (%view-of v (lit suggesting)) #f) (equal? hover (List ref 1 bt)) #t))
             (List range 0 (List length %buttons)))
+          ; the steps through the game
+          (List for-each
+            (fn (_ i)
+              (def nb (List ref i %nav))
+              (def xy (%nav-xy (List ref 2 cards) i))
+              (button! (first xy) (rest xy) %nav-w %nav-h (first nb) #f (equal? hover (List ref 1 nb)) (if (< i 2) back ahead)))
+            (List range 0 4))
           (Vector set! 9 key g)
           (Heap collect)))
     c))
@@ -725,14 +869,12 @@
             (List range 0 (%min 4 (List length thinking))))))
     ; the moves
     (def my (List ref 2 cards))
-    (def b (+ my 36))
-    (def rows (%view-of v (lit rows)))
+    (def layout (%moves-at v my))
+    (def b (first layout))
+    (def from (List ref 1 layout))
+    (def shown (List ref 2 layout))
     (def ply (%view-of v (lit ply)))
-    (def room (%max 1 (int/ (- %buttons-y 16 b) 22)))
-    (def at (List find-index (fn (_ r) (if (= (rest (List ref 1 r)) ply) #t (= (rest (List ref 2 r)) ply))) rows))
-    (def last-row (if (null? at) (- (List length rows) 1) at))
-    (def from (%max 0 (%min (- (List length rows) room) (- last-row (- room 2)))))
-    (def shown (List take (%min room (- (List length rows) from)) (List drop from rows)))
+    (def rows (%view-of v (lit rows)))
     (List for-each
       (fn (_ i)
         (def r (List ref i shown))
@@ -742,7 +884,7 @@
         (List for-each
           (fn (_ k)
             (def m (List ref k r))
-            (def x (+ %px (if (= k 1) 76 186)))
+            (def x (%move-x k))
             (when (if (< 0 (rest m)) (= (rest m) ply) #f) (%tint! g c (- x 8) (- y 5) 100 21 (list 70 98 150)))
             (%text! g c x y (first m) 10 15 %ink))
           (list 1 2)))
@@ -769,43 +911,104 @@
   (list "Moves: drag a piece to its square, or click it then the square;"
         "or type one (e4, Nf3, O-O, e7e8q) and press Enter."
         "Promote: click one of the four pieces shown down the file."
+        "Click a move in the list to look back at it; the arrows by"
+        "MOVES step back and forward.  Settings: your side, the engine's"
+        "time, the coach, thinking, suggestions and analysis."
         ""
         "u    take back          n         new game"
         "v    turn the board     w         play the other side"
         "i    hint               m         the engine moves now"
         "s    suggested moves    t         show or hide thinking"
         "l    analyse            j         the coach, on or off"
-        "z    puzzles            q         quit"
+        "z    puzzles            ,         settings"
         "[ ]  back, forward      Home End  first, last"
+        "q    quit"
         ""
         ":fen FEN   :time S   :depth N   :engine CMD"
         ":save FILE   :white   :black   :both   :new"
         ":puzzle [THEME]   :puzzles FILE [THEME] [LOW-HIGH]"
         ":coach   :suggest"
         ""
-        "The buttons do the same as their keys.  Any key closes this."))
+        "The buttons do the same as their keys.  A key or a click closes this."))
 
-; A box of LINES in the middle of the picture.
+(def %keys-items (List map (fn (_ l) (list l l () ())) %keys))
+
+; Row I of the box of ITEMS, the key HOT lit: its band when it is the
+; row's, a pill when it is the pill's.
+(def %draw-row!
+  (fn (_ g c items i hot)
+    (def layout (%box-layout g items))
+    (def b (first layout))
+    (def it (List ref i items))
+    (def pills (List ref 3 it))
+    (def row-key (List ref 2 it))
+    (when (if (null? row-key) #f (equal? row-key hot))
+      ((fn (_ r) (%box! c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 6 (list 58 64 78))) (List ref i (List ref 1 layout))))
+    (%text! g c (+ (first b) 32) (+ (List ref 1 b) 26 (* i %row-h)) (List ref 1 it) 10 14 (if (if (null? row-key) (null? pills) #f) %dim %ink))
+    (List for-each
+      (fn (_ j)
+        (def p (List ref j pills))
+        (def r (List ref j (List ref i (List ref 2 layout))))
+        (def on (List ref 2 p))
+        (def over (equal? (List ref 1 p) hot))
+        (%box! c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 8 (match (on (list 58 86 136)) (over (list 70 77 94)) (#t (list 54 59 72))))
+        (%text! g c (+ (first r) 9) (+ (List ref 1 r) 5) (first p) 10 15 (if (if on #t over) %ink %dim)))
+      (List range 0 (List length pills)))))
+
+; The box of ITEMS (see %box-items) in the middle of the picture, over
+; the rest dimmed: drawn into the still picture.
 (def %draw-box!
-  (fn (_ g c lines)
-    (def widest (List fold (fn (_ n l) (%max n (%text-w l 10))) 0 lines))
-    (def w (+ widest 64))
-    (def h (+ 48 (* 21 (List length lines))))
-    (def x (int/ (- %width w) 2))
-    (def y (%max 10 (int/ (- %height h) 2)))
+  (fn (_ g c items)
+    (def b (first (%box-layout g items)))
     (%tint! g c 0 0 %width %height (list 0 0 0 120))
-    (%box! c x y w h 14 (list 40 44 54))
-    (List for-each (fn (_ i) (%text! g c (+ x 32) (+ y 26 (* i 21)) (List ref i lines) 10 14 %ink)) (List range 0 (List length lines)))))
+    (%box! c (first b) (List ref 1 b) (List ref 2 b) (List ref 3 b) 14 (list 40 44 54))
+    (List for-each (fn (_ i) (%draw-row! g c items i ())) (List range 0 (List length items)))))
 
-; The game's end, over the board.
-(def %draw-over!
-  (fn (_ g c text)
+; The row of the box under the pointer at UI drawn again, lit, each frame.
+(def %draw-box-hot!
+  (fn (_ g c items ui)
+    (def x (Vector ref 0 ui))
+    (def y (Vector ref 1 ui))
+    (def hit (%box-hit g items x y))
+    (when (eq? (first hit) (lit key))
+      ((fn (_ i) (unless (null? i) (%draw-row! g c items i (List ref 1 hit)))) (%rect-at (List ref 1 (%box-layout g items)) x y)))))
+
+; The game's end, over the board, with its buttons: a new game, a move
+; taken back.
+(def %over-at
+  (fn (_ text)
     (def w (%max 360 (+ 60 (%text-w text 16))))
-    (def x (+ %bx (int/ (- (* 8 %sq) w) 2)))
-    (def y (+ %by (* 3 %sq) 10))
-    (%box! c x y w 116 14 (list 28 31 38 235))
-    (%text! g c (+ x (int/ (- w (%text-w text 16)) 2)) (+ y 30) text 16 17 %ink)
-    ((fn (_ t) (%text! g c (+ x (int/ (- w (%text-w t 10)) 2)) (+ y 74) t 10 14 %dim)) "New game, or take a move back")))
+    (list (+ %bx (int/ (- (* 8 %sq) w) 2)) (+ %by (* 3 %sq) 10) w 116)))
+
+(def %over-buttons (list (list "New game" "n") (list "Take back" "u")))
+
+(def %over-button
+  (fn (_ o i)
+    (def bw 120)
+    (list (+ (first o) (int/ (List ref 2 o) 2) (if (= i 0) (- 0 bw 6) 6)) (+ (List ref 1 o) 66) bw 30)))
+
+(def %over-hit
+  (fn (_ v x y)
+    (def text (%view-of v (lit over)))
+    (if (if (null? text) #t (not (null? (%view-of v (lit promo))))) ()
+      ((fn (_ o) ((fn (_ i) (if (null? i) () (List ref 1 (List ref i %over-buttons)))) (%index-at 2 (fn (_ i) (%over-button o i)) x y)))
+       (%over-at text)))))
+
+(def %draw-over!
+  (fn (_ g c v ui)
+    (def text (%view-of v (lit over)))
+    (def o (%over-at text))
+    (def hot (%over-hit v (Vector ref 0 ui) (Vector ref 1 ui)))
+    (%box! c (first o) (List ref 1 o) (List ref 2 o) 116 14 (list 28 31 38 235))
+    (%text! g c (+ (first o) (int/ (- (List ref 2 o) (%text-w text 16)) 2)) (+ (List ref 1 o) 30) text 16 17 %ink)
+    (List for-each
+      (fn (_ i)
+        (def bt (List ref i %over-buttons))
+        (def r (%over-button o i))
+        (def live (equal? hot (List ref 1 bt)))
+        (%box! c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 8 (if live (list 70 77 94) (list 46 51 62)))
+        (%text! g c (+ (first r) (int/ (- (List ref 2 r) (%text-w (first bt) 10)) 2)) (+ (List ref 1 r) 10) (first bt) 10 15 (if live %ink %dim)))
+      (list 0 1))))
 
 ; A move or a command being typed, at the board's foot.
 (def %draw-input!
@@ -823,8 +1026,8 @@
 
 ; The square under the pointer a dragged piece would be let go on, or -1.
 (def %drop
-  (fn (_ v ui)
-    (def hit (if (< -1 (Vector ref 2 ui)) (gui-at (%view-of v (lit view)) (Vector ref 0 ui) (Vector ref 1 ui)) ()))
+  (fn (_ g v ui)
+    (def hit (if (< -1 (Vector ref 2 ui)) (gui-at g v (Vector ref 0 ui) (Vector ref 1 ui)) ()))
     (if (if (null? hit) #f (if (eq? (first hit) (lit square)) (List includes? (List ref 1 hit) (%view-of v (lit targets))) #f))
       (List ref 1 hit)
       -1)))
@@ -839,7 +1042,7 @@
   (fn (_ g v ui)
     (def p (%view-of v (lit pos)))
     (def anim (Vector ref 3 ui))
-    (def drop (%drop v ui))
+    (def drop (%drop g v ui))
     (def chrome (%chrome g v ui))
     (def key (list (Vector ref 9 g) (pos-hash-lo p) (pos-hash-hi p) (Vector ref 2 ui) drop (if (null? anim) -1 (first anim))
                    (List filter (fn (_ e) (not (List includes? (first e) (list (lit pos) (lit share))))) v)))
@@ -851,8 +1054,15 @@
           (%draw-strip! g c (+ %by (* 8 %sq) 14) (List ref 1 strips))
           (%draw-board! g c v ui drop)
           (%draw-panel! g c v ui)
+          ((fn (_ items) (unless (null? items) (%draw-box! g c items))) (%box-items v))
           (Vector set! 16 key g)))
     c))
+
+; The move in the list under the pointer at UI lit, when no box is shown.
+(def %draw-move-hover!
+  (fn (_ g c v ui)
+    ((fn (_ m) (unless (null? m) (%tint! g c (- (%move-x (List ref 1 m)) 8) (+ (List ref 3 m) (* (first m) 22) -5) 100 21 (list 255 255 255 28))))
+     (if (< (Vector ref 0 ui) %px) () (%move-under v (Vector ref 0 ui) (Vector ref 1 ui))))))
 
 ; Draw view V (tui-view's) on G's canvas.  UI is the window's Vector: 0 1
 ; the pointer's X Y, 2 the square of a piece being dragged or -1, 3 a move
@@ -862,15 +1072,20 @@
 (def gui-draw!
   (fn (_ g v ui)
     (def c (Vector ref 2 g))
+    (def items (%box-items v))
     (Canvas copy! c 0 0 (%still g v ui) 0 0 %width %height)
-    (%draw-moving! g c v ui)
     (def moving (%draw-bar! g c v))
     (%draw-score-bar! g c)
-    (%draw-promo! g c v)
-    (unless (null? (%view-of v (lit over))) (when (null? (%view-of v (lit promo))) (%draw-over! g c (%view-of v (lit over)))))
-    (%draw-input! g c v)
-    (when (%view-of v (lit help)) (%draw-box! g c %keys))
-    (unless (null? (%view-of v (lit choice))) (%draw-box! g c (%view-of v (lit choice))))
+    (if (null? items)
+      (do (%draw-moving! g c v ui)
+          (%draw-move-hover! g c v ui)
+          (%draw-promo! g c v)
+          (unless (null? (%view-of v (lit over))) (when (null? (%view-of v (lit promo))) (%draw-over! g c v ui)))
+          (%draw-input! g c v))
+      ; a box shown is in the still picture, its row under the pointer lit
+      (do (%tint! g c %bar-x %by %bar-w (* 8 %sq) (list 0 0 0 120))
+          (%tint! g c %score-x (- %score-y 4) %score-w 20 (list 0 0 0 120))
+          (%draw-box-hot! g c items ui)))
     moving))
 
 (provide chess/gui gui-make gui-draw! gui-at gui-canvas gui-width gui-height gui-square)
