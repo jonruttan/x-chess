@@ -34,7 +34,7 @@
 (import chess/record record-path record-load record-add! record-solved? record-played? record-best record-unsolved record-score)
 (import chess/daily daily-url daily-path daily-fetch daily-from-text daily-get)
 (import chess/app app-run)
-(import chess/gui gui-make gui-draw! gui-at gui-canvas gui-width gui-height gui-square)
+(import chess/gui gui-make gui-draw! gui-at gui-canvas gui-width gui-height gui-square gui-scale)
 (import chess/window window-run)
 (import chess/show show-board)
 (import chess/engine engine-start engine-quit! engine-name engine-send! engine-line engine-ready!
@@ -60,7 +60,7 @@
   match-run tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key? tui-draw!
   tui-puzzles! tui-puzzle-lines! tui-work! tui-scored! tui-unscored tui-suggest-wanted tui-suggestion! tui-suggested!
-  tui-view tui-sel gui-make gui-draw! gui-at gui-canvas gui-width gui-height gui-square window-run
+  tui-view tui-sel gui-make gui-draw! gui-at gui-canvas gui-width gui-height gui-square gui-scale window-run
   puzzle-make puzzle-fen puzzle-solution puzzle-title puzzle-rating puzzle-id
   puzzle-length puzzle-set puzzle-from-csv puzzle-judge puzzle-list-source puzzle-file-source
   puzzle-themes puzzle-mate-in puzzle-has? puzzle-filter puzzle-range puzzle-library puzzle-in? puzzle-lines puzzle-counts puzzle-count

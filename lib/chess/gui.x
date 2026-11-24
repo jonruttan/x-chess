@@ -147,22 +147,68 @@
       (Shape cubic (pair (+ l rr) b) (pair (- (+ l rr) k) b) (pair l (+ (- b rr) k)) (pair l (- b rr)))
       (Shape cubic (pair l (+ t rr)) (pair l (- (+ t rr) k)) (pair (- (+ l rr) k) t) (pair (+ l rr) t)))))
 
-(def %box! (fn (_ c x y w h r colour) (Shape fill! c (list (%rrect x y w h r)) colour)))
+; --- the scale ------------------------------------------------------------------------
+;
+; The picture is drawn at a whole scale, G's slot 20: 2 for a screen with
+; two pixels a point.  Everything is laid out in the pixels of the
+; picture at 1, and these draw it, each length times the scale; what they
+; copy from, the pieces, the marks, the bars' fills, the board and the
+; text, is made at the scale.
 
-; A bar's fill W by H, its corners R round, drawn once: a frame copies as
-; much of it as the bar shows.
-(def %pill (fn (_ w h r) ((fn (_ c) (%box! c 0 0 w h r (list 236 236 230)) c) (Canvas make w h))))
+(def %k (fn (_ g) (Vector ref 20 g)))
+
+; What a frame draws over the still picture is kept in G's slot 21, each
+; rectangle in pixels, for the next frame to put back from the still;
+; #f while the still itself is drawn.
+(def %marks 21)
+(def %whole 22)  ; the still's key when the canvas was last copied from it whole
+
+(def %mark!
+  (fn (_ g x y w h)
+    ((fn (_ m) (unless (eq? m #f) (Vector set! %marks (pair (list x y w h) m) g))) (Vector ref %marks g))))
+
+(def %fill!
+  (fn (_ g c x y w h colour)
+    ((fn (_ k) (%mark! g (* x k) (* y k) (* w k) (* h k)) (Canvas fill! c (* x k) (* y k) (* w k) (* h k) colour)) (%k g))))
+
+(def %copy!
+  (fn (_ g c x y src sx sy w h)
+    ((fn (_ k) (%mark! g (* x k) (* y k) (* w k) (* h k)) (Canvas copy! c (* x k) (* y k) src (* sx k) (* sy k) (* w k) (* h k))) (%k g))))
+
+(def %blend!
+  (fn (_ g c x y src sx sy w h)
+    ((fn (_ k) (%mark! g (* x k) (* y k) (* w k) (* h k)) (Canvas blend! c (* x k) (* y k) src (* sx k) (* sy k) (* w k) (* h k))) (%k g))))
+
+(def %stamp!
+  (fn (_ g c x y src sx sy w h colour)
+    ((fn (_ k) (%mark! g (* x k) (* y k) (* w k) (* h k)) (Canvas stamp! c (* x k) (* y k) src (* sx k) (* sy k) (* w k) (* h k) colour)) (%k g))))
+
+; A rounded rectangle; its edge's shading reaches a pixel past it.
+(def %box!
+  (fn (_ g c x y w h r colour)
+    ((fn (_ k)
+       (%mark! g (- (* x k) 1) (- (* y k) 1) (+ (* w k) 2) (+ (* h k) 2))
+       (Shape fill! c (list (%rrect (* x k) (* y k) (* w k) (* h k) (* r k))) colour))
+     (%k g))))
+
+; A bar's fill W by H at scale K, its corners R round, drawn once: a frame
+; copies as much of it as the bar shows.
+(def %pill
+  (fn (_ k w h r)
+    ((fn (_ c) (Shape fill! c (list (%rrect 0 0 (* w k) (* h k) (* r k))) (list 236 236 230)) c) (Canvas make (* w k) (* h k)))))
 
 ; A rectangle drawn over what is there, by COLOUR's alpha: a tile of the
 ; colour, made once a size and kept in G's slot 10, blended.
 (def %tint!
   (fn (_ g c x y w h colour)
     (def key (list w h colour))
+    (def k (%k g))
     (def hit (List find (fn (_ t) (equal? (first t) key)) (Vector ref 10 g)))
     (def tile
       (if (not (null? hit)) (rest hit)
-        ((fn (_ t) (Vector set! 10 (pair (pair key t) (Vector ref 10 g)) g) t) (Canvas fill! (Canvas make w h) 0 0 w h colour))))
-    (Canvas blend! c x y tile 0 0 w h)))
+        ((fn (_ t) (Vector set! 10 (pair (pair key t) (Vector ref 10 g)) g) t)
+         (Canvas fill! (Canvas make (* w k) (* h k)) 0 0 (* w k) (* h k) colour))))
+    (%blend! g c x y tile 0 0 w h)))
 
 ; --- the pieces ----------------------------------------------------------------------
 
@@ -355,11 +401,12 @@
 (def %text!
   (fn (_ g c x y text h weight colour)
     (if (str=? text "") x
-      ((fn (_ m)
+      ((fn (_ m k)
          (def mc (first m))
-         (Canvas stamp! c (- x (List ref 1 m)) (- y (List ref 1 m)) mc 0 0 (first mc) (List ref 1 mc) colour)
-         (+ x (List ref 2 m)))
-       (%mask-of g text h weight)))))
+         (%mark! g (- (* x k) (List ref 1 m)) (- (* y k) (List ref 1 m)) (first mc) (List ref 1 mc))
+         (Canvas stamp! c (- (* x k) (List ref 1 m)) (- (* y k) (List ref 1 m)) mc 0 0 (first mc) (List ref 1 mc) colour)
+         (+ x (%text-w text h)))
+       (%mask-of g text (* h (%k g)) weight) (%k g)))))
 
 (def %text-w (fn (_ text h) (%span (List length (%codes text)) h)))
 
@@ -380,32 +427,37 @@
 ; and the glow of a king in check, 15 the picture between moves (see
 ; %still) and 16 what it was drawn for, 17 and 18 the bars' fills whole:
 ; beside the board, and in the score card, 19 the box last shown and
-; where its rows and pills stand (see %box-layout).
+; where its rows and pills stand (see %box-layout), 20 the scale, 21 what
+; the last frame drew over the still picture and 22 the still it was
+; copied whole from (see %mark!).
 
+; A gui drawing at scale K: its picture K times gui-width by gui-height.
 (def gui-make
-  (fn (_)
-    (def g (Vector make 20 ()))
+  (fn (_ k)
+    (def g (Vector make 23 ()))
+    (def sq (* k %sq))
+    (Vector set! 20 k g)
     (Vector set! 0 (Vector make 64 ()) g)
     (Vector set! 1 0 g)
-    (Vector set! 2 (Canvas make %width %height) g)
-    (Vector set! 3 (%sprites %sq) g)
-    (Vector set! 4 (%sprites 26) g)
+    (Vector set! 2 (Canvas make (* k %width) (* k %height)) g)
+    (Vector set! 3 (%sprites sq) g)
+    (Vector set! 4 (%sprites (* k 26)) g)
     (Vector set! 7 500 g)
-    (Vector set! 8 (Canvas make %width %height) g)
+    (Vector set! 8 (Canvas make (* k %width) (* k %height)) g)
     (Vector set! 9 (lit none) g)
-    (Vector set! 15 (Canvas make %width %height) g)
+    (Vector set! 15 (Canvas make (* k %width) (* k %height)) g)
     (Vector set! 16 (lit none) g)
-    (Vector set! 17 (%pill %bar-w (* 8 %sq) 5) g)
-    (Vector set! 18 (%pill %score-w 12 6) g)
-    (def ctr (pair (* 128 %sq) (* 128 %sq)))
-    (def r (fn (_ n) (int/ (* %sq 256 n) 100)))
-    (def mark (fn (_ contours) (Shape fill! (Canvas make %sq %sq) contours (list 255 255 255))))
+    (Vector set! 17 (%pill k %bar-w (* 8 %sq) 5) g)
+    (Vector set! 18 (%pill k %score-w 12 6) g)
+    (def ctr (pair (* 128 sq) (* 128 sq)))
+    (def r (fn (_ n) (int/ (* sq 256 n) 100)))
+    (def mark (fn (_ contours) (Shape fill! (Canvas make sq sq) contours (list 255 255 255))))
     (Vector set! 11 (mark (list (%circle ctr (r 15)))) g)
     (Vector set! 12 (mark (list (%circle ctr (r 48)) (List reverse (%circle ctr (r 39))))) g)
-    (Vector set! 13 (mark (list (%rrect 0 0 %sq %sq 0) (List reverse (%rrect 4 4 (- %sq 8) (- %sq 8) 0)))) g)
-    (def glow (Canvas make %sq %sq))
-    (List for-each (fn (_ k) (Shape fill! glow (list (%circle ctr (r (List ref k (list 50 40 30 20)))))
-                               (List append %check-red (list (List ref k (list 50 60 80 110))))))
+    (Vector set! 13 (mark (list (%rrect 0 0 sq sq 0) (List reverse (%rrect (* k 4) (* k 4) (- sq (* k 8)) (- sq (* k 8)) 0)))) g)
+    (def glow (Canvas make sq sq))
+    (List for-each (fn (_ i) (Shape fill! glow (list (%circle ctr (r (List ref i (list 50 40 30 20)))))
+                               (List append %check-red (list (List ref i (list 50 60 80 110))))))
       (List range 0 4))
     (Vector set! 14 glow g)
     (Heap collect)
@@ -413,6 +465,7 @@
 
 (def gui-width (fn (_) %width))
 (def gui-height (fn (_) %height))
+(def gui-scale (fn (_ g) (%k g)))
 (def gui-canvas (fn (_ g) (Vector ref 2 g)))
 (def gui-square (fn (_) %sq))
 
@@ -435,7 +488,7 @@
   (fn (_ g view)
     (def slot (if (= view 0) 5 6))
     (when (null? (Vector ref slot g))
-      (do (def b (Canvas make (* 8 %sq) (* 8 %sq)))
+      (do (def b (Canvas make (* (%k g) 8 %sq) (* (%k g) 8 %sq)))
           (List for-each
             (fn (_ i)
               (def r (int/ i 8))
@@ -444,7 +497,7 @@
               (def light (%light? sq))
               (def x (* c %sq))
               (def y (* r %sq))
-              (Canvas fill! b x y %sq %sq (if light %light-sq %dark-sq))
+              (%fill! g b x y %sq %sq (if light %light-sq %dark-sq))
               (def ink (if light %dark-sq %light-sq))
               (when (= c 0) (%text! g b (+ x 5) (+ y 5) (io-display-to-str (+ 1 (sq-rank sq))) 11 15 ink))
               (when (= r 7) (%text! g b (- (+ x %sq) 13) (- (+ y %sq) 16) (List ref (sq-file sq) %files) 11 15 ink)))
@@ -597,13 +650,14 @@
 
 (def %view-of (fn (_ v k) (rest (Assoc find k v))))
 
-(def %centre (fn (_ view sq) ((fn (_ p) (pair (* 256 (+ (first p) (int/ %sq 2))) (* 256 (+ (rest p) (int/ %sq 2))))) (%sq-xy view sq))))
+; Square SQ's middle at scale K, in 256ths of a pixel.
+(def %centre (fn (_ k view sq) ((fn (_ p) (pair (* 256 k (+ (first p) (int/ %sq 2))) (* 256 k (+ (rest p) (int/ %sq 2))))) (%sq-xy view sq))))
 
-; An arrow from square A's middle to B's, its head at B.
+; An arrow from square A's middle to B's, its head at B, at scale K.
 (def %arrow!
-  (fn (_ c view a b colour)
-    (def p (%centre view a))
-    (def q (%centre view b))
+  (fn (_ k c view a b colour)
+    (def p (%centre k view a))
+    (def q (%centre k view b))
     (def dx (- (first q) (first p)))
     (def dy (- (rest q) (rest p)))
     (def len (%max 1 (%isqrt (+ (* (int/ dx 16) (int/ dx 16)) (* (int/ dy 16) (int/ dy 16))))))
@@ -611,7 +665,7 @@
     (def ux (int/ (* dx 64) len))
     (def uy (int/ (* dy 64) len))
     ; PCT hundredths of a square, in 256ths of a pixel
-    (def part (fn (_ pct) (int/ (* %sq 256 pct) 100)))
+    (def part (fn (_ pct) (int/ (* k %sq 256 pct) 100)))
     ; the point D along the way from PT
     (def along (fn (_ pt d) (pair (+ (first pt) (int/ (* ux d) 1024)) (+ (rest pt) (int/ (* uy d) 1024)))))
     (def start (along p (part 22)))
@@ -644,11 +698,11 @@
     (def anim (Vector ref 3 ui))
     (def big (Vector ref 3 g))
     (def sq! (fn (_ sq colour) ((fn (_ xy) (%tint! g c (first xy) (rest xy) %sq %sq colour)) (%sq-xy view sq))))
-    (def mark! (fn (_ sq slot colour) ((fn (_ xy) (Canvas stamp! c (first xy) (rest xy) (Vector ref slot g) 0 0 %sq %sq colour)) (%sq-xy view sq))))
+    (def mark! (fn (_ sq slot colour) ((fn (_ xy) (%stamp! g c (first xy) (rest xy) (Vector ref slot g) 0 0 %sq %sq colour)) (%sq-xy view sq))))
     (when (< 0 last) (do (sq! (move-from last) %last-tint) (sq! (move-to last) %last-tint)))
     (when (< -1 sel) (sq! sel %sel-tint))
     (def check (%view-of v (lit check)))
-    (when (< -1 check) ((fn (_ xy) (Canvas blend! c (first xy) (rest xy) (Vector ref 14 g) 0 0 %sq %sq)) (%sq-xy view check)))
+    (when (< -1 check) ((fn (_ xy) (%blend! g c (first xy) (rest xy) (Vector ref 14 g) 0 0 %sq %sq)) (%sq-xy view check)))
     ; where the piece picked up can go: a dot, or a ring round a piece taken
     (List for-each (fn (_ sq) (mark! sq (if (< 0 (pos-piece p sq)) 12 11) %mark)) (%view-of v (lit targets)))
     ; the square a dragged piece would be let go on
@@ -662,14 +716,14 @@
         (when (< 0 pc)
           ((fn (_ xy)
              (match
-               ((= sq drag) (Canvas stamp! c (first xy) (rest xy) (Vector ref pc big) 0 0 %sq %sq (list 0 0 0 55)))
+               ((= sq drag) (%stamp! g c (first xy) (rest xy) (Vector ref pc big) 0 0 %sq %sq (list 0 0 0 55)))
                ((if (null? anim) #f (= sq (first anim))) ())
-               (#t (Canvas blend! c (first xy) (rest xy) (Vector ref pc big) 0 0 %sq %sq))))
+               (#t (%blend! g c (first xy) (rest xy) (Vector ref pc big) 0 0 %sq %sq))))
            (%sq-xy view sq))))
       (List range 0 64))
     ; the hint, or the engine's first suggestion
     (def hint (%view-of v (lit hint)))
-    (when (< 0 hint) (%arrow! c view (move-from hint) (move-to hint) %arrow))))
+    (when (< 0 hint) (%arrow! (%k g) c view (move-from hint) (move-to hint) %arrow))))
 
 ; What moves over the still picture: a piece sliding on its way, a piece
 ; dragged at the pointer.
@@ -685,13 +739,13 @@
          (when (< 0 pc)
            ((fn (_ a b t)
               (def e (- 1000 (int/ (* (- 1000 t) (* (- 1000 t) (- 1000 t))) 1000000)))
-              (Canvas blend! c (+ (first a) (int/ (* (- (first b) (first a)) e) 1000)) (+ (rest a) (int/ (* (- (rest b) (rest a)) e) 1000))
+              (%blend! g c (+ (first a) (int/ (* (- (first b) (first a)) e) 1000)) (+ (rest a) (int/ (* (- (rest b) (rest a)) e) 1000))
                 (Vector ref pc big) 0 0 %sq %sq))
             (%sq-xy view (List ref 1 anim)) (%sq-xy view (first anim)) (List ref 2 anim))))
        (pos-piece p (first anim))))
     (when (< -1 drag)
       ((fn (_ pc) (when (< 0 pc)
-                    (Canvas blend! c (- (Vector ref 0 ui) (int/ %sq 2)) (- (Vector ref 1 ui) (int/ (* %sq 3) 5)) (Vector ref pc big) 0 0 %sq %sq)))
+                    (%blend! g c (- (Vector ref 0 ui) (int/ %sq 2)) (- (Vector ref 1 ui) (int/ (* %sq 3) 5)) (Vector ref pc big) 0 0 %sq %sq)))
        (pos-piece p drag)))))
 
 ; The bar: white's share from the bottom as the board is seen, eased
@@ -707,8 +761,8 @@
     (def wh (int/ (* now h) 1000))
     (def pill (Vector ref 17 g))
     (if (= (%view-of v (lit view)) 0)
-      (when (< 0 wh) (Canvas blend! c %bar-x (- (+ %by h) wh) pill 0 (- h wh) %bar-w wh))
-      (when (< 0 wh) (Canvas blend! c %bar-x %by pill 0 0 %bar-w wh)))
+      (when (< 0 wh) (%blend! g c %bar-x (- (+ %by h) wh) pill 0 (- h wh) %bar-w wh))
+      (when (< 0 wh) (%blend! g c %bar-x %by pill 0 0 %bar-w wh)))
     (%tint! g c (- %bar-x 2) (- (+ %by (int/ h 2)) 1) (+ %bar-w 4) 2 (list 230 120 80 200))
     (not (= now want))))
 
@@ -718,7 +772,7 @@
 (def %draw-score-bar!
   (fn (_ g c)
     (def share (Vector ref 7 g))
-    (when (< 0 share) (Canvas blend! c %score-x %score-y (Vector ref 18 g) 0 0 (%max 12 (int/ (* %score-w share) 1000)) 12))
+    (when (< 0 share) (%blend! g c %score-x %score-y (Vector ref 18 g) 0 0 (%max 12 (int/ (* %score-w share) 1000)) 12))
     (%tint! g c (+ %score-x (int/ %score-w 2)) (- %score-y 4) 2 20 (list 230 120 80 220))))
 
 ; A side's strip at Y: a disc of its colour, its name, what it has taken
@@ -728,14 +782,15 @@
     (def side (List ref 1 s))
     (def to-move (List ref 2 s))
     (def small (Vector ref 4 g))
-    (when to-move (%box! c (- %bx 6) (- y 4) (+ 64 (%text-w (first s) 13)) 30 15 (list 52 74 60)))
-    (Shape fill! c (list (%circle (pair (* 256 (+ %bx 12)) (* 256 (+ y 11))) (* 256 8))) (if (= side 0) (list 240 238 230) (list 20 20 24)))
-    (Shape stroke! c (%circle (pair (* 256 (+ %bx 12)) (* 256 (+ y 11))) (* 256 8)) 300 (list 120 124 132) #t)
+    (when to-move (%box! g c (- %bx 6) (- y 4) (+ 64 (%text-w (first s) 13)) 30 15 (list 52 74 60)))
+    (def disc (%circle (pair (* 256 (%k g) (+ %bx 12)) (* 256 (%k g) (+ y 11))) (* 256 (%k g) 8)))
+    (Shape fill! c (list disc) (if (= side 0) (list 240 238 230) (list 20 20 24)))
+    (Shape stroke! c disc (* 300 (%k g)) (list 120 124 132) #t)
     (def x (%text! g c (+ %bx 30) (+ y 4) (first s) 13 15 (if to-move %ink %dim)))
     (def x2 (+ x 22))
     (def kinds (List ref 3 s))
     (List for-each
-      (fn (_ i) (Canvas blend! c (+ x2 (* i 15)) (- y 2) (Vector ref (+ (- 8 side) (List ref i kinds)) small) 0 0 26 26))
+      (fn (_ i) (%blend! g c (+ x2 (* i 15)) (- y 2) (Vector ref (+ (- 8 side) (List ref i kinds)) small) 0 0 26 26))
       (List range 0 (List length kinds)))
     (when (< 0 (List ref 4 s))
       (%text! g c (+ x2 (* 15 (List length kinds)) 16) (+ y 6) (Str8 append "+" (io-display-to-str (List ref 4 s))) 10 15 %dim))))
@@ -779,22 +834,22 @@
     (def c (Vector ref 8 g))
     (def button!
       (fn (_ x y w h label on hot live)
-        (%box! c x y w h 8 (match (on (list 58 86 136)) ((if hot live #f) (list 58 64 78)) (#t (if (< h 30) %card-hi %card))))
+        (%box! g c x y w h 8 (match (on (list 58 86 136)) ((if hot live #f) (list 58 64 78)) (#t (if (< h 30) %card-hi %card))))
         (%text! g c (+ x (int/ (- w (%text-w label 10)) 2)) (+ y (int/ (- h 10) 2)) label 10 15 (match ((not live) %faint) (hot %ink) (#t %dim)))))
     (unless (equal? key (Vector ref 9 g))
-      (do (Canvas fill! c 0 0 %width %height %bg)
-          (%box! c (- %bx 6) (- %by 6) (+ 12 (* 8 %sq)) (+ 12 (* 8 %sq)) 8 (list 12 13 16))
-          (Canvas copy! c %bx %by (%board g view) 0 0 (* 8 %sq) (* 8 %sq))
-          (%box! c %bar-x %by %bar-w (* 8 %sq) 5 (list 40 40 46))
-          (%box! c %px 14 %pw 70 10 %card)
-          (%box! c %px 96 %pw 104 10 %card)
+      (do (%fill! g c 0 0 %width %height %bg)
+          (%box! g c (- %bx 6) (- %by 6) (+ 12 (* 8 %sq)) (+ 12 (* 8 %sq)) 8 (list 12 13 16))
+          (%copy! g c %bx %by (%board g view) 0 0 (* 8 %sq) (* 8 %sq))
+          (%box! g c %bar-x %by %bar-w (* 8 %sq) 5 (list 40 40 46))
+          (%box! g c %px 14 %pw 70 10 %card)
+          (%box! g c %px 96 %pw 104 10 %card)
           (%text! g c (+ %px 16) 110 "SCORE" 10 17 %dim)
-          (%box! c %score-x %score-y %score-w 12 6 (list 20 20 24))
+          (%box! g c %score-x %score-y %score-w 12 6 (list 20 20 24))
           (List for-each
             (fn (_ i)
               ((fn (_ y)
                  (when (< -1 y)
-                   (do (%box! c %px y %pw (if (= i 2) (- %buttons-y y 12) (List ref i %card-heights)) 10 %card)
+                   (do (%box! g c %px y %pw (if (= i 2) (- %buttons-y y 12) (List ref i %card-heights)) 10 %card)
                        (%text! g c (+ %px 16) (+ y 14) (List ref i %card-titles) 10 17 %dim))))
                (List ref i cards)))
             (List range 0 3))
@@ -901,8 +956,8 @@
           (List for-each
             (fn (_ ch)
               ((fn (_ xy)
-                 (%box! c (+ 3 (first xy)) (+ 3 (rest xy)) (- %sq 6) (- %sq 6) 12 (list 240 236 226))
-                 (Canvas blend! c (first xy) (rest xy) (Vector ref (+ side (rest ch)) (Vector ref 3 g)) 0 0 %sq %sq))
+                 (%box! g c (+ 3 (first xy)) (+ 3 (rest xy)) (- %sq 6) (- %sq 6) 12 (list 240 236 226))
+                 (%blend! g c (first xy) (rest xy) (Vector ref (+ side (rest ch)) (Vector ref 3 g)) 0 0 %sq %sq))
                (%sq-xy (%view-of v (lit view)) (first ch))))
             choices)))))
 
@@ -943,7 +998,7 @@
     (def pills (List ref 3 it))
     (def row-key (List ref 2 it))
     (when (if (null? row-key) #f (equal? row-key hot))
-      ((fn (_ r) (%box! c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 6 (list 58 64 78))) (List ref i (List ref 1 layout))))
+      ((fn (_ r) (%box! g c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 6 (list 58 64 78))) (List ref i (List ref 1 layout))))
     (%text! g c (+ (first b) 32) (+ (List ref 1 b) 26 (* i %row-h)) (List ref 1 it) 10 14 (if (if (null? row-key) (null? pills) #f) %dim %ink))
     (List for-each
       (fn (_ j)
@@ -951,7 +1006,7 @@
         (def r (List ref j (List ref i (List ref 2 layout))))
         (def on (List ref 2 p))
         (def over (equal? (List ref 1 p) hot))
-        (%box! c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 8 (match (on (list 58 86 136)) (over (list 70 77 94)) (#t (list 54 59 72))))
+        (%box! g c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 8 (match (on (list 58 86 136)) (over (list 70 77 94)) (#t (list 54 59 72))))
         (%text! g c (+ (first r) 9) (+ (List ref 1 r) 5) (first p) 10 15 (if (if on #t over) %ink %dim)))
       (List range 0 (List length pills)))))
 
@@ -961,7 +1016,7 @@
   (fn (_ g c items)
     (def b (first (%box-layout g items)))
     (%tint! g c 0 0 %width %height (list 0 0 0 120))
-    (%box! c (first b) (List ref 1 b) (List ref 2 b) (List ref 3 b) 14 (list 40 44 54))
+    (%box! g c (first b) (List ref 1 b) (List ref 2 b) (List ref 3 b) 14 (list 40 44 54))
     (List for-each (fn (_ i) (%draw-row! g c items i ())) (List range 0 (List length items)))))
 
 ; The row of the box under the pointer at UI drawn again, lit, each frame.
@@ -994,21 +1049,38 @@
       ((fn (_ o) ((fn (_ i) (if (null? i) () (List ref 1 (List ref i %over-buttons)))) (%index-at 2 (fn (_ i) (%over-button o i)) x y)))
        (%over-at text)))))
 
+; The card at the game's end, its button HOT lit, or none for ().
 (def %draw-over!
-  (fn (_ g c v ui)
+  (fn (_ g c v hot)
     (def text (%view-of v (lit over)))
     (def o (%over-at text))
-    (def hot (%over-hit v (Vector ref 0 ui) (Vector ref 1 ui)))
-    (%box! c (first o) (List ref 1 o) (List ref 2 o) 116 14 (list 28 31 38 235))
+    (%box! g c (first o) (List ref 1 o) (List ref 2 o) 116 14 (list 28 31 38 235))
     (%text! g c (+ (first o) (int/ (- (List ref 2 o) (%text-w text 16)) 2)) (+ (List ref 1 o) 30) text 16 17 %ink)
-    (List for-each
-      (fn (_ i)
-        (def bt (List ref i %over-buttons))
-        (def r (%over-button o i))
-        (def live (equal? hot (List ref 1 bt)))
-        (%box! c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 8 (if live (list 70 77 94) (list 46 51 62)))
-        (%text! g c (+ (first r) (int/ (- (List ref 2 r) (%text-w (first bt) 10)) 2)) (+ (List ref 1 r) 10) (first bt) 10 15 (if live %ink %dim)))
-      (list 0 1))))
+    (List for-each (fn (_ i) (%draw-over-button! g c o i hot)) (list 0 1))))
+
+(def %draw-over-button!
+  (fn (_ g c o i hot)
+    (def bt (List ref i %over-buttons))
+    (def r (%over-button o i))
+    (def live (equal? hot (List ref 1 bt)))
+    (%box! g c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 8 (if live (list 70 77 94) (list 46 51 62)))
+    (%text! g c (+ (first r) (int/ (- (List ref 2 r) (%text-w (first bt) 10)) 2)) (+ (List ref 1 r) 10) (first bt) 10 15 (if live %ink %dim))))
+
+; Whether the card at the game's end is shown, and whether it is in the
+; still picture: it is when no piece slides, which a frame draws over
+; the board and so under the card.
+(def %over-shown? (fn (_ v) (if (null? (%view-of v (lit over))) #f (null? (%view-of v (lit promo))))))
+(def %over-still? (fn (_ v ui) (if (%over-shown? v) (if (null? (%box-items v)) (null? (Vector ref 3 ui)) #f) #f)))
+
+; The card's button under the pointer at UI lit over the card in the
+; still picture.
+(def %draw-over-hot!
+  (fn (_ g c v ui)
+    ((fn (_ hot)
+       (unless (null? hot)
+         ((fn (_ o) (List for-each (fn (_ i) (when (equal? hot (List ref 1 (List ref i %over-buttons))) (%draw-over-button! g c o i hot))) (list 0 1)))
+          (%over-at (%view-of v (lit over))))))
+     (%over-hit v (Vector ref 0 ui) (Vector ref 1 ui)))))
 
 ; A move or a command being typed, at the board's foot.
 (def %draw-input!
@@ -1020,7 +1092,7 @@
                      (#t "")))
     (unless (str=? text "")
       ((fn (_ w)
-         (%box! c (+ %bx (int/ (- (* 8 %sq) w) 2)) (- (+ %by (* 8 %sq)) 60) w 40 12 (list 28 31 38 240))
+         (%box! g c (+ %bx (int/ (- (* 8 %sq) w) 2)) (- (+ %by (* 8 %sq)) 60) w 40 12 (list 28 31 38 240))
          (%text! g c (+ %bx (int/ (- (* 8 %sq) w) 2) 20) (- (+ %by (* 8 %sq)) 46) text 12 16 %ink))
        (+ 40 (%text-w text 12))))))
 
@@ -1048,13 +1120,14 @@
                    (List filter (fn (_ e) (not (List includes? (first e) (list (lit pos) (lit share))))) v)))
     (def c (Vector ref 15 g))
     (unless (equal? key (Vector ref 16 g))
-      (do (Canvas copy! c 0 0 chrome 0 0 %width %height)
+      (do (%copy! g c 0 0 chrome 0 0 %width %height)
           (def strips (%view-of v (lit strips)))
           (%draw-strip! g c 16 (first strips))
           (%draw-strip! g c (+ %by (* 8 %sq) 14) (List ref 1 strips))
           (%draw-board! g c v ui drop)
           (%draw-panel! g c v ui)
           ((fn (_ items) (unless (null? items) (%draw-box! g c items))) (%box-items v))
+          (when (%over-still? v ui) (%draw-over! g c v ()))
           (Vector set! 16 key g)))
     c))
 
@@ -1073,14 +1146,23 @@
   (fn (_ g v ui)
     (def c (Vector ref 2 g))
     (def items (%box-items v))
-    (Canvas copy! c 0 0 (%still g v ui) 0 0 %width %height)
+    (def drawn (Vector ref %marks g))
+    (Vector set! %marks #f g)
+    (def s (%still g v ui))
+    ; the still as it was, only what the last frame drew over it put back
+    (if (if (eq? drawn #f) #f (eq? (Vector ref 16 g) (Vector ref %whole g)))
+      (List for-each (fn (_ r) (Canvas copy! c (first r) (List ref 1 r) s (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r))) drawn)
+      (do (%copy! g c 0 0 s 0 0 %width %height)
+          (Vector set! %whole (Vector ref 16 g) g)))
+    (Vector set! %marks () g)
     (def moving (%draw-bar! g c v))
     (%draw-score-bar! g c)
     (if (null? items)
       (do (%draw-moving! g c v ui)
           (%draw-move-hover! g c v ui)
           (%draw-promo! g c v)
-          (unless (null? (%view-of v (lit over))) (when (null? (%view-of v (lit promo))) (%draw-over! g c v ui)))
+          (if (%over-still? v ui) (%draw-over-hot! g c v ui)
+            (when (%over-shown? v) (%draw-over! g c v (%over-hit v (Vector ref 0 ui) (Vector ref 1 ui)))))
           (%draw-input! g c v))
       ; a box shown is in the still picture, its row under the pointer lit
       (do (%tint! g c %bar-x %by %bar-w (* 8 %sq) (list 0 0 0 120))
@@ -1088,4 +1170,4 @@
           (%draw-box-hot! g c items ui)))
     moving))
 
-(provide chess/gui gui-make gui-draw! gui-at gui-canvas gui-width gui-height gui-square)
+(provide chess/gui gui-make gui-draw! gui-at gui-canvas gui-width gui-height gui-square gui-scale)

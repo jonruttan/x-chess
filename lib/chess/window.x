@@ -38,7 +38,7 @@
 (import chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
   tui-engine-to-move? tui-report! tui-thinking-clear! tui-engine-played! tui-hint! tui-key! tui-loop-key?
   tui-work! tui-scored! tui-unscored tui-suggest-wanted tui-suggestion! tui-suggested! tui-view tui-sel)
-(import chess/gui gui-make gui-draw! gui-at gui-canvas gui-width gui-height)
+(import chess/gui gui-make gui-draw! gui-at gui-canvas gui-width gui-height gui-scale)
 
 ; --- the window's state ------------------------------------------------------------
 ;
@@ -63,7 +63,8 @@
 (def %log 14)      ; the slow-moments log, a file descriptor, or ()
 (def %doing 15)    ; what the window is busy with, for the log
 (def %pumped 16)   ; the clock when the events were last taken
-(def %slots 17)
+(def %checked 17)  ; the clock when the screen's density was last asked
+(def %slots 18)
 
 (def %get (fn (_ w i) (Vector ref i w)))
 (def %put! (fn (_ w i v) (Vector set! i v w)))
@@ -112,8 +113,46 @@
 
 ; --- events -------------------------------------------------------------------------
 
+; Event E with the pointer's place in the picture's pixels at scale 1, as
+; the gui lays it out.
+(def %logical
+  (fn (_ w e)
+    (def k (gui-scale (%get w %gui)))
+    (def at (match ((eq? (first e) (lit mouse-motion)) 1) ((eq? (first e) (lit mouse-down)) 2) ((eq? (first e) (lit mouse-up)) 2) (#t 0)))
+    (if (if (= k 1) #t (= at 0)) e
+      (let each ((i 0) (xs e))
+        (if (null? xs) ()
+          (pair (if (if (< (- at 1) i) (< i (+ at 2)) #f) (int/ (first xs) k) (first xs)) (each (+ i 1) (rest xs))))))))
+
 (def %next-event
-  (fn (_ w) (if (eq? (%get w %front) Sdl) (Sdl poll (%get w %win)) (Web poll))))
+  (fn (_ w)
+    ((fn (_ e) (if (null? e) () (%logical w e)))
+     (if (eq? (%get w %front) Sdl) (Sdl poll (%get w %win)) (Web poll)))))
+
+; --- the screen's density -----------------------------------------------------------
+
+; Pixels a point on the window's screen, 1 or 2: drawn at 2, the picture is
+; as sharp as such a screen shows.  An x without density answers 1.
+(def %density
+  (fn (_ w)
+    ((fn (_ d) (match ((< d 2) 1) (#t 2)))
+     (guard (e 1) ((%get w %front) density (%get w %win))))))
+
+; The gui and the window's picture made at the screen's density when it
+; is not the one drawn at: at the start, and when the window moves to
+; another screen or a page connects.
+(def %rescale!
+  (fn (_ w)
+    (def d (%density w))
+    (%put! w %checked (%ms))
+    (unless (= d (gui-scale (%get w %gui)))
+      (do (def began (%ms))
+          (%put! w %gui ())
+          (Heap collect)
+          (%put! w %gui (gui-make d))
+          (%put! w %win ((%get w %front) picture! (%get w %win) (* d (gui-width)) (* d (gui-height))))
+          (%put! w %dirty #t)
+          (%note! w (Str8 append "drawing at " (io-display-to-str d) " took " (io-display-to-str (- (%ms) began)) " ms"))))))
 
 (def %queue! (fn (_ w item) (%put! w %queue (List append (%get w %queue) (list item)))))
 
@@ -203,6 +242,7 @@
 (def %frame!
   (fn (_ w)
     (def now (%ms))
+    (when (< 1000 (- now (%get w %checked))) (%rescale! w))
     (def v (tui-view (%get w %st)))
     (def ui (%get w %ui))
     (%put! w %view v)
@@ -217,6 +257,9 @@
     ((fn (_ took) (when (< 50 took) (%note! w (Str8 append "showing the frame took " (io-display-to-str took) " ms"))))
      (- (%ms) shown))
     (%put! w %drawn now)
+    ; a slide's first frame draws the picture between moves again, which
+    ; takes a while: the slide is timed from when that frame is shown
+    (when (if (null? s) #f (= t 0)) (%put! w %slide (list (first s) (List ref 1 s) (%ms))))
     (%put! w %dirty #f)
     (when (< 250 (- now (%get w %collected))) (do (Heap collect) (%put! w %collected (%ms))))
     ; the bar still easing is drawn again
@@ -387,7 +430,7 @@
     (def w (Vector make %slots ()))
     (%put! w %front front)
     (%put! w %st (tui-make opts))
-    (%put! w %gui (gui-make))
+    (%put! w %gui (gui-make 1))
     (%put! w %ui (Vector of -1 -1 -1 () ()))
     (%put! w %dirty #t)
     (%put! w %drawn 0)
@@ -399,10 +442,12 @@
     (%put! w %log (%log-open))
     (%put! w %doing "starting")
     (%put! w %pumped (%ms))
+    (%put! w %checked 0)
     (%put! w %win (front scaling! (front open "x-chess" (gui-width) (gui-height) 1) (lit fit)))
     ; a window opened from a terminal is left behind it, the keyboard with
     ; the terminal
     (when (eq? front Sdl) (Sdl raise! (%get w %win)))
+    (%rescale! w)
     (def failed (guard (e e) (do (%loop w) ())))
     (front close (%get w %win))
     (unless (null? (%get w %log)) (guard (e ()) (File close (%get w %log))))
