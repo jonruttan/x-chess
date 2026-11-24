@@ -34,7 +34,7 @@
 (import x/sys/gc)
 (import x/core/doors io-display-to-str char->int str-byte-ref str-byte-len int/ int%)
 (import chess/board PAWN KNIGHT BISHOP ROOK QUEEN KING pos-piece pos-side piece-kind piece-colour sq-make sq-file sq-rank
-  move-from move-to)
+  move-from move-to pos-hash-lo pos-hash-hi)
 
 ; --- the layout ---------------------------------------------------------------------
 
@@ -51,6 +51,9 @@
 (def %button-h 30)
 (def %button-gap 8)
 (def %buttons-y 680)
+(def %score-x 904)      ; the score card's bar: its left, top and width
+(def %score-y 144)
+(def %score-w 240)
 
 (def %buttons
   (list (list "New" "n") (list "Take back" "u") (list "Turn" "v") (list "Hint" "i")
@@ -142,6 +145,10 @@
       (Shape cubic (pair l (+ t rr)) (pair l (- (+ t rr) k)) (pair (- (+ l rr) k) t) (pair (+ l rr) t)))))
 
 (def %box! (fn (_ c x y w h r colour) (Shape fill! c (list (%rrect x y w h r)) colour)))
+
+; A bar's fill W by H, its corners R round, drawn once: a frame copies as
+; much of it as the bar shows.
+(def %pill (fn (_ w h r) ((fn (_ c) (%box! c 0 0 w h r (list 236 236 230)) c) (Canvas make w h))))
 
 ; A rectangle drawn over what is there, by COLOUR's alpha: a tile of the
 ; colour, made once a size and kept in G's slot 10, blended.
@@ -367,11 +374,13 @@
 ; picture of what changes least (see %chrome) and 9 what it was drawn
 ; for, 10 the tints' tiles, 11 to 14 a square's marks: the dot of a move,
 ; the ring of a capture, the edge of the square a piece would drop on,
-; and the glow of a king in check.
+; and the glow of a king in check, 15 the picture between moves (see
+; %still) and 16 what it was drawn for, 17 and 18 the bars' fills whole:
+; beside the board, and in the score card.
 
 (def gui-make
   (fn (_)
-    (def g (Vector make 15 ()))
+    (def g (Vector make 19 ()))
     (Vector set! 0 (Vector make 64 ()) g)
     (Vector set! 1 0 g)
     (Vector set! 2 (Canvas make %width %height) g)
@@ -380,6 +389,10 @@
     (Vector set! 7 500 g)
     (Vector set! 8 (Canvas make %width %height) g)
     (Vector set! 9 (lit none) g)
+    (Vector set! 15 (Canvas make %width %height) g)
+    (Vector set! 16 (lit none) g)
+    (Vector set! 17 (%pill %bar-w (* 8 %sq) 5) g)
+    (Vector set! 18 (%pill %score-w 12 6) g)
     (def ctr (pair (* 128 %sq) (* 128 %sq)))
     (def r (fn (_ n) (int/ (* %sq 256 n) 100)))
     (def mark (fn (_ contours) (Shape fill! (Canvas make %sq %sq) contours (list 255 255 255))))
@@ -497,7 +510,7 @@
 
 ; The board, its marks and its pieces.  UI is the window's: see gui-draw!.
 (def %draw-board!
-  (fn (_ g c v ui)
+  (fn (_ g c v ui drop)
     (def view (%view-of v (lit view)))
     (def p (%view-of v (lit pos)))
     (def last (%view-of v (lit last)))
@@ -514,12 +527,9 @@
     ; where the piece picked up can go: a dot, or a ring round a piece taken
     (List for-each (fn (_ sq) (mark! sq (if (< 0 (pos-piece p sq)) 12 11) %mark)) (%view-of v (lit targets)))
     ; the square a dragged piece would be let go on
-    (when (< -1 drag)
-      ((fn (_ at)
-         (when (if (not (null? at)) (List includes? (List ref 1 at) (%view-of v (lit targets))) #f)
-           (mark! (List ref 1 at) 13 (list 255 255 255 150))))
-       ((fn (_ hit) (if (if (null? hit) #f (eq? (first hit) (lit square))) hit ())) (gui-at view (Vector ref 0 ui) (Vector ref 1 ui)))))
-    ; the pieces: one dragged is drawn last at the pointer, one sliding on its way
+    (when (< -1 drop) (mark! drop 13 (list 255 255 255 150)))
+    ; the pieces at rest: one dragged is a shadow where it stood, one sliding
+    ; is drawn over the still picture
     (List for-each
       (fn (_ i)
         (def sq (+ (* (int/ i 8) 16) (int% i 8)))
@@ -534,7 +544,17 @@
       (List range 0 64))
     ; the hint, or the engine's first suggestion
     (def hint (%view-of v (lit hint)))
-    (when (< 0 hint) (%arrow! c view (move-from hint) (move-to hint) %arrow))
+    (when (< 0 hint) (%arrow! c view (move-from hint) (move-to hint) %arrow))))
+
+; What moves over the still picture: a piece sliding on its way, a piece
+; dragged at the pointer.
+(def %draw-moving!
+  (fn (_ g c v ui)
+    (def view (%view-of v (lit view)))
+    (def p (%view-of v (lit pos)))
+    (def drag (Vector ref 2 ui))
+    (def anim (Vector ref 3 ui))
+    (def big (Vector ref 3 g))
     (unless (null? anim)
       ((fn (_ pc)
          (when (< 0 pc)
@@ -560,13 +580,21 @@
     (Vector set! 7 now g)
     (def h (* 8 %sq))
     (def wh (int/ (* now h) 1000))
+    (def pill (Vector ref 17 g))
     (if (= (%view-of v (lit view)) 0)
-      (when (< 0 wh) (%box! c %bar-x (- (+ %by h) wh) %bar-w wh 5 (list 236 236 230)))
-      (when (< 0 wh) (%box! c %bar-x %by %bar-w wh 5 (list 236 236 230))))
+      (when (< 0 wh) (Canvas blend! c %bar-x (- (+ %by h) wh) pill 0 (- h wh) %bar-w wh))
+      (when (< 0 wh) (Canvas blend! c %bar-x %by pill 0 0 %bar-w wh)))
     (%tint! g c (- %bar-x 2) (- (+ %by (int/ h 2)) 1) (+ %bar-w 4) 2 (list 230 120 80 200))
     (not (= now want))))
 
 (def %abs (fn (_ n) (if (< n 0) (- 0 n) n)))
+
+; The score card's bar, at the share the bar beside the board shows.
+(def %draw-score-bar!
+  (fn (_ g c)
+    (def share (Vector ref 7 g))
+    (when (< 0 share) (Canvas blend! c %score-x %score-y (Vector ref 18 g) 0 0 (%max 12 (int/ (* %score-w share) 1000)) 12))
+    (%tint! g c (+ %score-x (int/ %score-w 2)) (- %score-y 4) 2 20 (list 230 120 80 220))))
 
 ; A side's strip at Y: a disc of its colour, its name, what it has taken
 ; and its lead.  S is (WHO SIDE TO-MOVE? KINDS LEAD).
@@ -622,6 +650,7 @@
           (%box! c %px 14 %pw 70 10 %card)
           (%box! c %px 96 %pw 104 10 %card)
           (%text! g c (+ %px 16) 110 "SCORE" 10 17 %dim)
+          (%box! c %score-x %score-y %score-w 12 6 (list 20 20 24))
           (List for-each
             (fn (_ i)
               ((fn (_ y)
@@ -670,12 +699,6 @@
     (%note! g c 96 "SCORE" (%view-of v (lit standing)))
     (def score (%view-of v (lit score)))
     (%text! g c (+ %px 16) 136 (if (str=? score "") "--" score) 26 16 (%score-colour score))
-    (def bx (+ %px 180))
-    (def bw (- %pw 196))
-    (def share (Vector ref 7 g))
-    (%box! c bx 144 bw 12 6 (list 20 20 24))
-    (when (< 0 share) (%box! c bx 144 (%max 12 (int/ (* bw share) 1000)) 12 6 (list 236 236 230)))
-    (%tint! g c (+ bx (int/ bw 2)) 140 2 20 (list 230 120 80 220))
     (%text! g c (+ %px 16) 174 (%clip (%view-of v (lit detail)) 50) 9 14 %faint)
     ; the suggestions
     (def sy (first cards))
@@ -741,6 +764,27 @@
                (%sq-xy (%view-of v (lit view)) (first ch))))
             choices)))))
 
+; The keys box: what the window takes, its buttons and its pointer.
+(def %keys
+  (list "Moves: drag a piece to its square, or click it then the square;"
+        "or type one (e4, Nf3, O-O, e7e8q) and press Enter."
+        "Promote: click one of the four pieces shown down the file."
+        ""
+        "u    take back          n         new game"
+        "v    turn the board     w         play the other side"
+        "i    hint               m         the engine moves now"
+        "s    suggested moves    t         show or hide thinking"
+        "l    analyse            j         the coach, on or off"
+        "z    puzzles            q         quit"
+        "[ ]  back, forward      Home End  first, last"
+        ""
+        ":fen FEN   :time S   :depth N   :engine CMD"
+        ":save FILE   :white   :black   :both   :new"
+        ":puzzle [THEME]   :puzzles FILE [THEME] [LOW-HIGH]"
+        ":coach   :suggest"
+        ""
+        "The buttons do the same as their keys.  Any key closes this."))
+
 ; A box of LINES in the middle of the picture.
 (def %draw-box!
   (fn (_ g c lines)
@@ -777,6 +821,39 @@
          (%text! g c (+ %bx (int/ (- (* 8 %sq) w) 2) 20) (- (+ %by (* 8 %sq)) 46) text 12 16 %ink))
        (+ 40 (%text-w text 12))))))
 
+; The square under the pointer a dragged piece would be let go on, or -1.
+(def %drop
+  (fn (_ v ui)
+    (def hit (if (< -1 (Vector ref 2 ui)) (gui-at (%view-of v (lit view)) (Vector ref 0 ui) (Vector ref 1 ui)) ()))
+    (if (if (null? hit) #f (if (eq? (first hit) (lit square)) (List includes? (List ref 1 hit) (%view-of v (lit targets))) #f))
+      (List ref 1 hit)
+      -1)))
+
+; The picture as it stands between moves: the chrome, the strips, the
+; board with its marks and the pieces at rest, the panel.  It is drawn
+; again only when what it shows changes; a frame copies it and draws
+; what moves over it.  The key is the position's hash, the squares of a
+; piece dragged, its drop and a piece sliding, and the rest of the view
+; but the share the bar eases to.
+(def %still
+  (fn (_ g v ui)
+    (def p (%view-of v (lit pos)))
+    (def anim (Vector ref 3 ui))
+    (def drop (%drop v ui))
+    (def chrome (%chrome g v ui))
+    (def key (list (Vector ref 9 g) (pos-hash-lo p) (pos-hash-hi p) (Vector ref 2 ui) drop (if (null? anim) -1 (first anim))
+                   (List filter (fn (_ e) (not (List includes? (first e) (list (lit pos) (lit share))))) v)))
+    (def c (Vector ref 15 g))
+    (unless (equal? key (Vector ref 16 g))
+      (do (Canvas copy! c 0 0 chrome 0 0 %width %height)
+          (def strips (%view-of v (lit strips)))
+          (%draw-strip! g c 16 (first strips))
+          (%draw-strip! g c (+ %by (* 8 %sq) 14) (List ref 1 strips))
+          (%draw-board! g c v ui drop)
+          (%draw-panel! g c v ui)
+          (Vector set! 16 key g)))
+    c))
+
 ; Draw view V (tui-view's) on G's canvas.  UI is the window's Vector: 0 1
 ; the pointer's X Y, 2 the square of a piece being dragged or -1, 3 a move
 ; sliding, (TO FROM PROGRESS) with progress in thousandths, or ().
@@ -785,17 +862,14 @@
 (def gui-draw!
   (fn (_ g v ui)
     (def c (Vector ref 2 g))
-    (Canvas copy! c 0 0 (%chrome g v ui) 0 0 %width %height)
-    (def strips (%view-of v (lit strips)))
-    (%draw-strip! g c 16 (first strips))
-    (%draw-strip! g c (+ %by (* 8 %sq) 14) (List ref 1 strips))
-    (%draw-board! g c v ui)
+    (Canvas copy! c 0 0 (%still g v ui) 0 0 %width %height)
+    (%draw-moving! g c v ui)
     (def moving (%draw-bar! g c v))
-    (%draw-panel! g c v ui)
+    (%draw-score-bar! g c)
     (%draw-promo! g c v)
     (unless (null? (%view-of v (lit over))) (when (null? (%view-of v (lit promo))) (%draw-over! g c (%view-of v (lit over)))))
     (%draw-input! g c v)
-    (unless (null? (%view-of v (lit help))) (%draw-box! g c (%view-of v (lit help))))
+    (when (%view-of v (lit help)) (%draw-box! g c %keys))
     (unless (null? (%view-of v (lit choice))) (%draw-box! g c (%view-of v (lit choice))))
     moving))
 
