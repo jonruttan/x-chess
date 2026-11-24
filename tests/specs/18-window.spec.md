@@ -80,7 +80,7 @@ window's events, needs a window and is not run here.
 
 ```chess
 (def st (tui-make ()))
-(import x/gfx/canvas)
+(import gfx/canvas)
 (def g (gui-make))
 (gui-draw! g (tui-view st) (Vector of -1 -1 -1 ()))
 (def c (gui-canvas g))
