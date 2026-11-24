@@ -2,12 +2,13 @@
 
 (name "chess")
 
-; Self-contained: this bundle depends on nothing but the platform.
-;
 ; Helium, plus exactly the libraries this bundle imports and nothing
 ; ambient: the terminal and the clock, none of the tower.
 (dialect he)
 
-(requires-release "v0.61.0")
+(requires-release "v0.62.0")
+
+; The window board draws with the graphics library.
+(requires-bundle "gfx" "v0.1.0" "jonruttan/x-lib-gfx")
 
 (entry run)

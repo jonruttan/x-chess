@@ -6,7 +6,7 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; Draws what tui-view says on an RGBA canvas (x/gfx/canvas) of %width by
+; Draws what tui-view says on an RGBA canvas (gfx/canvas) of %width by
 ; %height: the board on the left with the bar beside it and a strip for
 ; each side, and on the right the panel of cards (the game, the score,
 ; the suggestions, the engine's thinking, the moves) over a row of
@@ -19,18 +19,18 @@
 ; piece is a shadow, its outline stroked, its body filled over the
 ; stroke's inner half, the detail, and a light from the left.
 ;
-; Text is x/gfx/font's strokes, a string drawn once as a mask and kept,
+; Text is gfx/font's strokes, a string drawn once as a mask and kept,
 ; then stamped in its colour wherever it is wanted.
 ;
 ; Lengths in the piece outlines are hundredths of a square, x from the
-; middle and y from the top; points handed to x/gfx/shape are in 256ths
+; middle and y from the top; points handed to gfx/shape are in 256ths
 ; of a pixel.
 
 (module chess/gui)
 
-(import x/gfx/canvas)
-(import x/gfx/shape)
-(import x/gfx/font)
+(import gfx/canvas)
+(import gfx/shape)
+(import gfx/font)
 (import x/sys/gc)
 (import x/core/doors io-display-to-str char->int str-byte-ref str-byte-len int/ int%)
 (import chess/board PAWN KNIGHT BISHOP ROOK QUEEN KING pos-piece pos-side piece-kind piece-colour sq-make sq-file sq-rank
