@@ -1541,7 +1541,8 @@
 ;   suggesting suggest-status suggested   whether suggestions are on, what
 ;                 the heading says, and rows (MOVE SCORE LINE)
 ;   over          the result said, or ()
-;   help choice   the lines of the box shown, or ()
+;   help          whether the keys are asked for: each front end has its own
+;   choice        the lines of the box shown, or ()
 ;   puzzle review whether a puzzle is set; the ply looked back at, or -1
 (def tui-view
   (fn (_ st)
@@ -1600,7 +1601,7 @@
                                    (List ref 2 row)))
               (if (null? s) () (List ref 2 s))))
           (pair (lit over) (if (null? over) () (Str8 append (%result-text (first over)) " by " (rest over))))
-          (pair (lit help) (if (%get st %help) %help-lines ()))
+          (pair (lit help) (%get st %help))
           (pair (lit choice) (if (%get st %choose) (%choice-lines st) ()))
           (pair (lit puzzle) (not (null? (%get st %puzzle))))
           (pair (lit review) (%get st %review)))))
