@@ -203,3 +203,27 @@ window's events, needs a window and is not run here.
 ```output
 (#f #t)
 ```
+
+### a box opened, changed for another and closed: each frame is the one drawn whole
+
+```chess
+(import gfx/canvas)
+(def st (tui-make (list (pair (lit side) (lit both)))))
+(def a (gui-make 1))
+(def same-as-whole
+  (fn (_ ui)
+    (def v (tui-view st))
+    (gui-draw! a v ui)
+    (def b (gui-make 1))
+    (gui-draw! b v ui)
+    (equal? (List ref 2 (gui-canvas a)) (List ref 2 (gui-canvas b)))))
+(write (list
+  (same-as-whole (Vector of 920 250 -1 ()))
+  (do (tui-key! st "z") (same-as-whole (Vector of 590 250 -1 ())))
+  (do (tui-key! st (lit escape)) (tui-key! st ",") (same-as-whole (Vector of 640 340 -1 ())))
+  (do (tui-key! st (lit escape)) (same-as-whole (Vector of 920 250 -1 ())))))
+```
+---
+```output
+(#t #t #t #t)
+```
