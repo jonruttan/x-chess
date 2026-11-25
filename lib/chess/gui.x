@@ -183,12 +183,39 @@
   (fn (_ g c x y src sx sy w h colour)
     ((fn (_ k) (%mark! g (* x k) (* y k) (* w k) (* h k)) (Canvas stamp! c (* x k) (* y k) src (* sx k) (* sy k) (* w k) (* h k) colour)) (%k g))))
 
+; A shape's coverage, made once and kept in G's slot 23 by KEY: BUILD
+; answers a canvas whose alpha is the shape, drawn white.  Filling a
+; shape's outline is the dearest draw there is; a kept mask is stamped in
+; any colour as a glyph is.
+(def %kept-masks 23)
+(def %kept-mask
+  (fn (_ g key build)
+    ((fn (_ hit)
+       (if (null? hit)
+         ((fn (_ m)
+            ; a box as wide as a line being typed is one of many: past a few
+            ; dozen the kept ones go
+            (Vector set! %kept-masks (pair (pair key m) (if (< 48 (List length (Vector ref %kept-masks g))) () (Vector ref %kept-masks g))) g)
+            m)
+          (build))
+         (rest hit)))
+     (List find (fn (_ e) (equal? (first e) key)) (Vector ref %kept-masks g)))))
+
+; MASK stamped on C in COLOUR with its top left at pixels X Y.
+(def %stamp-mask!
+  (fn (_ g c x y mask colour)
+    (%mark! g x y (first mask) (List ref 1 mask))
+    (Canvas stamp! c x y mask 0 0 (first mask) (List ref 1 mask) colour)))
+
 ; A rounded rectangle; its edge's shading reaches a pixel past it.
 (def %box!
   (fn (_ g c x y w h r colour)
     ((fn (_ k)
-       (%mark! g (- (* x k) 1) (- (* y k) 1) (+ (* w k) 2) (+ (* h k) 2))
-       (Shape fill! c (list (%rrect (* x k) (* y k) (* w k) (* h k) (* r k))) colour))
+       (%stamp-mask! g c (- (* x k) 1) (- (* y k) 1)
+         (%kept-mask g (list w h r)
+           (fn (_) ((fn (_ m) (Shape fill! m (list (%rrect 1 1 (* w k) (* h k) (* r k))) (list 255 255 255)) m)
+                    (Canvas make (+ (* w k) 2) (+ (* h k) 2)))))
+         colour))
      (%k g))))
 
 ; A bar's fill W by H at scale K, its corners R round, drawn once: a frame
@@ -434,7 +461,7 @@
 ; A gui drawing at scale K: its picture K times gui-width by gui-height.
 (def gui-make
   (fn (_ k)
-    (def g (Vector make 23 ()))
+    (def g (Vector make 24 ()))
     (def sq (* k %sq))
     (Vector set! 20 k g)
     (Vector set! 0 (Vector make 64 ()) g)
@@ -783,9 +810,19 @@
     (def to-move (List ref 2 s))
     (def small (Vector ref 4 g))
     (when to-move (%box! g c (- %bx 6) (- y 4) (+ 64 (%text-w (first s) 13)) 30 15 (list 52 74 60)))
-    (def disc (%circle (pair (* 256 (%k g) (+ %bx 12)) (* 256 (%k g) (+ y 11))) (* 256 (%k g) 8)))
-    (Shape fill! c (list disc) (if (= side 0) (list 240 238 230) (list 20 20 24)))
-    (Shape stroke! c disc (* 300 (%k g)) (list 120 124 132) #t)
+    ; the disc and its ring, each a mask with room for the ring's width
+    (def k (%k g))
+    (def m (* 3 k))
+    (def disc (fn (_) (%circle (pair (* 256 (+ m (* 8 k))) (* 256 (+ m (* 8 k)))) (* 256 k 8))))
+    (def blank (fn (_) (Canvas make (* 2 (+ m (* 8 k))) (* 2 (+ m (* 8 k))))))
+    (def at-x (- (* k (+ %bx 4)) m))
+    (def at-y (- (* k (+ y 3)) m))
+    (%stamp-mask! g c at-x at-y
+      (%kept-mask g (lit disc) (fn (_) ((fn (_ b) (Shape fill! b (list (disc)) (list 255 255 255)) b) (blank))))
+      (if (= side 0) (list 240 238 230) (list 20 20 24)))
+    (%stamp-mask! g c at-x at-y
+      (%kept-mask g (lit ring) (fn (_) ((fn (_ b) (Shape stroke! b (disc) (* 300 k) (list 255 255 255) #t) b) (blank))))
+      (list 120 124 132))
     (def x (%text! g c (+ %bx 30) (+ y 4) (first s) 13 15 (if to-move %ink %dim)))
     (def x2 (+ x 22))
     (def kinds (List ref 3 s))
@@ -1150,7 +1187,7 @@
     (Vector set! %marks #f g)
     (def s (%still g v ui))
     ; the still as it was, only what the last frame drew over it put back
-    (if (if (eq? drawn #f) #f (eq? (Vector ref 16 g) (Vector ref %whole g)))
+    (if (if (eq? drawn #f) #f (same? (Vector ref 16 g) (Vector ref %whole g)))
       (List for-each (fn (_ r) (Canvas copy! c (first r) (List ref 1 r) s (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r))) drawn)
       (do (%copy! g c 0 0 s 0 0 %width %height)
           (Vector set! %whole (Vector ref 16 g) g)))
