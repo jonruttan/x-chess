@@ -479,23 +479,19 @@
     m))
 
 ; Each position of the built-in lines with the move played there, as
-; (key . move), made at first use, the heap collected at each move: x
-; collects only when asked.
-(def %builtin ())
-
-(def %builtin!
-  (fn (_)
-    (when (null? %builtin)
-      (def walk
-        (fn (self p sans acc)
-          (if (null? sans) acc
-            ((fn (_ m) (def key (pos-key p)) (make! p m) (Heap collect) (self p (rest sans) (pair (pair key m) acc)))
-             (%san-move p (first sans))))))
-      (set! %builtin
-        (List fold (fn (_ acc line)
-                     (walk (pos-from-fen fen-start) (List reject (fn (_ w) (str=? w "")) (Str8 split " " line)) acc))
-          () %lines)))
-    %builtin))
+; (key . move), the heap collected at each move: x collects only when
+; asked.  Made when the module loads, which a state image keeps, and
+; not at the engine's first move: the walk takes about three seconds.
+(def %builtin
+  ((fn (_)
+     (def walk
+       (fn (self p sans acc)
+         (if (null? sans) acc
+           ((fn (_ m) (def key (pos-key p)) (make! p m) (Heap collect) (self p (rest sans) (pair (pair key m) acc)))
+            (%san-move p (first sans))))))
+     (List fold (fn (_ acc line)
+                  (walk (pos-from-fen fen-start) (List reject (fn (_ w) (str=? w "")) (Str8 split " " line)) acc))
+       () %lines))))
 
 ; MOVES with each move once, weighted by how often it came.
 (def %tally
@@ -510,7 +506,7 @@
 (def %builtin-moves
   (fn (_ p)
     (def key (pos-key p))
-    (%tally (List map rest (List filter (fn (_ e) (str=? (first e) key)) (%builtin!))))))
+    (%tally (List map rest (List filter (fn (_ e) (str=? (first e) key)) %builtin)))))
 
 ; --- choosing -------------------------------------------------------------------
 

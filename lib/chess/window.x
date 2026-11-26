@@ -386,10 +386,12 @@
       ((str=? item "m") (%engine-move! w))
       (#t (tui-key! st item)))))
 
-; Until there is something to act on or to draw: the picture kept up.
+; Until there is something to act on or to draw: the picture kept up,
+; and drawn again at a page's density when one connects to it idle.
 (def %wait!
   (fn (self w)
     (%pump! w)
+    (when (< 1000 (- (%ms) (%get w %checked))) (%rescale! w))
     (%refresh! w)
     (when (if (null? (%get w %queue)) (if (%get w %dirty) #f (not (%moving? w))) #f)
       (do (Sys usleep 8000) (self w)))))
