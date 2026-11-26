@@ -227,3 +227,28 @@ window's events, needs a window and is not run here.
 ```output
 (#t #t #t #t)
 ```
+
+### the pointer over one button then another, and a move that lets the game step back: each frame is the one drawn whole
+
+```chess
+(import gfx/canvas)
+(def st (tui-make (list (pair (lit side) (lit both)))))
+(def a (gui-make 1))
+(def same-as-whole
+  (fn (_ ui)
+    (def v (tui-view st))
+    (gui-draw! a v ui)
+    (def b (gui-make 1))
+    (gui-draw! b v ui)
+    (equal? (List ref 2 (gui-canvas a)) (List ref 2 (gui-canvas b)))))
+(write (list
+  (same-as-whole (Vector of 300 300 -1 ()))
+  (same-as-whole (Vector of 885 731 -1 ()))
+  (same-as-whole (Vector of 996 731 -1 ()))
+  (do (tui-key! st (list (lit square) 20)) (tui-key! st (list (lit square) 52)) (same-as-whole (Vector of 300 300 -1 ())))
+  (same-as-whole (Vector of 885 731 -1 ()))))
+```
+---
+```output
+(#t #t #t #t #t)
+```
