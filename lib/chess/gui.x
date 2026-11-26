@@ -880,8 +880,33 @@
       (fn (_ x y w h label on hot live)
         (%box! g c x y w h 8 (match (on (list 58 86 136)) ((if hot live #f) (list 58 64 78)) (#t (if (< h 30) %card-hi %card))))
         (%text! g c (+ x (int/ (- w (%text-w label 10)) 2)) (+ y (int/ (- h 10) 2)) label 10 15 (match ((not live) %faint) (hot %ink) (#t %dim)))))
-    (unless (equal? key (Vector ref 9 g))
-      (do (%fill! g c 0 0 %width %height %bg)
+    (def buttons!
+      (fn (_ clear)
+        (List for-each
+          (fn (_ i)
+            (def bt (List ref i %buttons))
+            (def xy (%button-xy i))
+            (when clear (%fill! g c (- (first xy) 1) (- (rest xy) 1) (+ %button-w 2) (+ %button-h 2) %bg))
+            (button! (first xy) (rest xy) %button-w %button-h (first bt)
+              (if (str=? (List ref 1 bt) "s") (%view-of v (lit suggesting)) #f) (equal? hover (List ref 1 bt)) #t))
+          (List range 0 (List length %buttons)))
+        ; the steps through the game
+        (List for-each
+          (fn (_ i)
+            (def nb (List ref i %nav))
+            (def xy (%nav-xy (List ref 2 cards) i))
+            (when clear (%fill! g c (- (first xy) 1) (- (rest xy) 1) (+ %nav-w 2) (+ %nav-h 2) %card))
+            (button! (first xy) (rest xy) %nav-w %nav-h (first nb) #f (equal? hover (List ref 1 nb)) (if (< i 2) back ahead)))
+          (List range 0 4))))
+    (def was (Vector ref 9 g))
+    (match
+      ((equal? key was) ())
+      ; only a button changed: the buttons alone are drawn again
+      ((if (pair? was) (if (equal? view (first was)) (equal? cards (List ref 1 was)) #f) #f)
+       (do (buttons! #t)
+           (Vector set! 9 key g)))
+      (#t
+       (do (%fill! g c 0 0 %width %height %bg)
           (%box! g c (- %bx 6) (- %by 6) (+ 12 (* 8 %sq)) (+ 12 (* 8 %sq)) 8 (list 12 13 16))
           (%copy! g c %bx %by (%board g view) 0 0 (* 8 %sq) (* 8 %sq))
           (%box! g c %bar-x %by %bar-w (* 8 %sq) 5 (list 40 40 46))
@@ -897,22 +922,9 @@
                        (%text! g c (+ %px 16) (+ y 14) (List ref i %card-titles) 10 17 %dim))))
                (List ref i cards)))
             (List range 0 3))
-          (List for-each
-            (fn (_ i)
-              (def bt (List ref i %buttons))
-              (def xy (%button-xy i))
-              (button! (first xy) (rest xy) %button-w %button-h (first bt)
-                (if (str=? (List ref 1 bt) "s") (%view-of v (lit suggesting)) #f) (equal? hover (List ref 1 bt)) #t))
-            (List range 0 (List length %buttons)))
-          ; the steps through the game
-          (List for-each
-            (fn (_ i)
-              (def nb (List ref i %nav))
-              (def xy (%nav-xy (List ref 2 cards) i))
-              (button! (first xy) (rest xy) %nav-w %nav-h (first nb) #f (equal? hover (List ref 1 nb)) (if (< i 2) back ahead)))
-            (List range 0 4))
+          (buttons! #f)
           (Vector set! 9 key g)
-          (Heap collect)))
+          (Heap collect))))
     c))
 
 ; NOTE beside a card's title TITLE at Y.
