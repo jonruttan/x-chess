@@ -64,10 +64,16 @@
 (def %doing 15)    ; what the window is busy with, for the log
 (def %pumped 16)   ; the clock when the events were last taken
 (def %checked 17)  ; the clock when the screen's density was last asked
-(def %slots 18)
+(def %stale 18)    ; whether the game may have changed since the view was made: a
+                   ; frame for the pointer alone draws the view it has
+(def %slots 19)
 
 (def %get (fn (_ w i) (Vector ref i w)))
 (def %put! (fn (_ w i v) (Vector set! i v w)))
+
+; The picture out of date because the game may have changed: the view is
+; made again.  The pointer alone sets %dirty, and keeps the view.
+(def %changed! (fn (_ w) (Vector set! %stale #t w) (Vector set! %dirty #t w)))
 
 (def %ms (fn (_) ((fn (_ t) (+ (* 1000 (first t)) (int/ (rest t) 1000))) (Sys time-of-day))))
 
@@ -151,7 +157,7 @@
           (Heap collect)
           (%put! w %gui (gui-make d))
           (%put! w %win ((%get w %front) picture! (%get w %win) (* d (gui-width)) (* d (gui-height))))
-          (%put! w %dirty #t)
+          (%changed! w)
           (%note! w (Str8 append "drawing at " (io-display-to-str d) " took " (io-display-to-str (- (%ms) began)) " ms"))))))
 
 (def %queue! (fn (_ w item) (%put! w %queue (List append (%get w %queue) (list item)))))
@@ -243,7 +249,8 @@
   (fn (_ w)
     (def now (%ms))
     (when (< 1000 (- now (%get w %checked))) (%rescale! w))
-    (def v (tui-view (%get w %st)))
+    (def v (if (%get w %stale) (tui-view (%get w %st)) (%get w %view)))
+    (%put! w %stale #f)
     (def ui (%get w %ui))
     (%put! w %view v)
     (%follow! w v now)
@@ -305,10 +312,11 @@
     (def g (tui-game st))
     (def p (game-pos g))
     (tui-thinking-clear! st)
+    (%put! w %stale #t)
     (%frame! w)
     (def began (%ms))
     (def r (player-think (tui-engine st) g (if (= ms 0) 64 (tui-depth st)) ms poll
-             (fn (_ r) (tui-report! st p r) (%frame! w))))
+             (fn (_ r) (tui-report! st p r) (%put! w %stale #t) (%frame! w))))
     ((fn (_ took) (when (if (< 0 ms) (< (+ ms 1000) took) #f)
                     (%note! w (Str8 append "a " (io-display-to-str ms) " ms search took " (io-display-to-str took) " ms"))))
      (- (%ms) began))
@@ -325,22 +333,22 @@
       ((tui-quit? st) ())
       ((null? r) (tui-message! st "The engine has no move."))
       (#t (tui-engine-played! st (List ref 4 r) r)))
-    (%put! w %dirty #t)))
+    (%changed! w)))
 
 (def %hint!
   (fn (_ w)
     (def st (%get w %st))
     (def r (%think w (%playing-poll w) (%min 3000 (tui-ms st))))
     (unless (null? r) (tui-hint! st (List ref 4 r)))
-    (%put! w %dirty #t)))
+    (%changed! w)))
 
 (def %assess-ms 500)
 
 (def %assess!
   (fn (_ w p)
     (def st (%get w %st))
-    (search-best p 64 %assess-ms 0 (%waiting-poll w) (fn (_ r) (tui-scored! st p r) (%put! w %dirty #t) (%refresh! w)))
-    (%put! w %dirty #t)
+    (search-best p 64 %assess-ms 0 (%waiting-poll w) (fn (_ r) (tui-scored! st p r) (%changed! w) (%refresh! w)))
+    (%changed! w)
     (Heap collect)))
 
 ; Each suggestion in turn, as chess/app finds them.
@@ -354,9 +362,9 @@
       (fn (self k except)
         (Vector set! 0 () box)
         (search-excluding p except 64 (%min 2000 (tui-ms st)) 0 poll
-          (fn (_ r) (Vector set! 0 r box) (tui-suggestion! st p k r) (%put! w %dirty #t) (%refresh! w)))
+          (fn (_ r) (Vector set! 0 r box) (tui-suggestion! st p k r) (%changed! w) (%refresh! w)))
         (Heap collect)
-        (%put! w %dirty #t)
+        (%changed! w)
         (match ((not (null? (%get w %queue))) ())
                ((null? (Vector ref 0 box)) (tui-suggested! st p))
                (#t ((fn (_ wa) (if (null? wa) (tui-suggested! st p) (self (+ k 1) (rest wa)))) (tui-suggest-wanted st))))))
@@ -368,7 +376,7 @@
   (fn (_ w item)
     (def st (%get w %st))
     (def ui (%get w %ui))
-    (%put! w %dirty #t)
+    (%changed! w)
     (match
       ((if (pair? item) (eq? (first item) (lit press)) #f)
         ((fn (_ sq)
@@ -417,9 +425,9 @@
             ((fn (_ left) (when (< 0 left) (Sys usleep (* 1000 left)))) (- %frame-ms (- (%ms) (%get w %drawn))))
             (%frame! w)
             (self w)))
-      ((tui-work! st) (do (%put! w %dirty #t) (self w)))
+      ((tui-work! st) (do (%changed! w) (self w)))
       ((tui-engine-to-move? st) (do (%doing! w "the engine's move") (%engine-move! w) (self w)))
-      ((tui-analysing? st) (do (%doing! w "analysis") (%think w (%waiting-poll w) 0) (%put! w %dirty #t) (%wait! w) (self w)))
+      ((tui-analysing? st) (do (%doing! w "analysis") (%think w (%waiting-poll w) 0) (%changed! w) (%wait! w) (self w)))
       (#t (do (%idle! w) (self w))))))
 
 ; Play in a window drawn through FRONT, Sdl or Web, with OPTS as
@@ -432,11 +440,12 @@
     (%put! w %st (tui-make opts))
     (%put! w %gui (gui-make 1))
     (%put! w %ui (Vector of -1 -1 -1 () ()))
-    (%put! w %dirty #t)
+    (%changed! w)
     (%put! w %drawn 0)
     (%put! w %seen (pair -1 0))
     (%put! w %dropped #f)
     (%put! w %view ())
+    (%put! w %stale #t)
     (%put! w %collected 0)
     (%put! w %polled 0)
     (%put! w %log (%log-open))

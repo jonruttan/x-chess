@@ -675,7 +675,14 @@
 
 ; --- drawing ------------------------------------------------------------------------
 
-(def %view-of (fn (_ v k) (rest (Assoc find k v))))
+; The value under symbol K in view V.  A frame asks about fifty times, so
+; the walk is a plain one: a class's method call makes more than a
+; thousand objects, and those are what a frame's collection pays for.
+(def %view-of
+  (fn (self v k)
+    (match ((null? v) ())
+           ((eq? k (first (first v))) (rest (first v)))
+           (#t (self (rest v) k)))))
 
 ; Square SQ's middle at scale K, in 256ths of a pixel.
 (def %centre (fn (_ k view sq) ((fn (_ p) (pair (* 256 k (+ (first p) (int/ %sq 2))) (* 256 k (+ (rest p) (int/ %sq 2))))) (%sq-xy view sq))))
