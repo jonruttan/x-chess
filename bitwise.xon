@@ -11,11 +11,11 @@
 ;   (accent H S L)            replaces the hashed hue in the field and the eyes
 ;   (secondary H S L)         the colour for role b
 ;   (eyes (H S L) (H S L))    two-tone eyes, left then right
-;   (rows "ROW" ...)          the owl's glyph rows: printable ASCII, plus lambda and the turtle
+;   (rows "ROW" ...)          the owl's glyph rows: printable ASCII, plus lambda, the turtle and the chess kings
 ;   (roles "ROW" ...)         same layout: i ink, e/f the eyes, a accent, b secondary
 ;   (reference "LINE")        one line in this project's own language, on the banner
 (costume "x-chess"
   (label "a language on x-lang")
-  (rows "., .," "{O,O}" "(O-O)" " \" \"")
+  (rows "., .," "{O,O}" "(♔ ♚)" " \" \"")
   (roles "ii ii" "ieifi" "iaaai" " i i ")
   (reference "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. O-O"))
