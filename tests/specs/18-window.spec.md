@@ -65,6 +65,19 @@ window's events, needs a window and is not run here.
 ((8 #f () -5) (0 #t () 5))
 ```
 
+### what m does now, for its button to say: plays for you, stops the engine, or shows a puzzle's move
+
+```chess
+(def does (fn (_ st) (rest (Assoc find (lit m-does) (tui-view st)))))
+(write (list (does (tui-make ()))
+             (does (tui-make (list (pair (lit side) (lit black)))))
+             (does (tui-make (list (pair (lit puzzles) (puzzle-list-source (puzzle-set))))))))
+```
+---
+```output
+('play 'stop 'show)
+```
+
 ## the picture
 
 ### a point of the picture: a square as the board is seen, a button, or nothing

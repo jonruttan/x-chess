@@ -36,6 +36,22 @@ chess/cli: the options, and what is answered without a game.
 ---
     ((('board . "ascii")) (('error . "--board takes one of wood, green, blue, grey, ascii")) (('error . "--board takes one of wood, green, blue, grey, ascii")))
 
+### --listen takes an address, an address and a port, or a port alone
+
+An address alone tries the ports from 8080; a port given is the only
+one tried.
+
+```chess
+(write (list (chess-options (list "--listen" "0.0.0.0") ())
+             (chess-options (list "--listen" "127.0.0.1:9000") ())
+             (chess-options (list "--listen" ":9000") ())
+             (chess-options (list "--listen" "127.0.0.1:http") ())
+             (chess-options (list "--listen" "127.0.0.1:70000") ())
+             (chess-options (list "--listen") ())))
+```
+---
+    ((('listen "0.0.0.0" 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 0)) (('listen "127.0.0.1" 9000)) (('listen "127.0.0.1" 9000)) (('error . "--listen takes an address, ADDRESS:PORT or :PORT")) (('error . "--listen takes an address, ADDRESS:PORT or :PORT")) (('error . "--listen takes an address, ADDRESS:PORT or :PORT")))
+
 ### --unsolved passes over the solved, --random sets the puzzles in a random order, --one one of them
 
 ```chess

@@ -244,6 +244,13 @@
           (%put! w %seen (pair ply last))
           (%put! w %dropped #f)))))
 
+; x collects only when asked: four times a second at most, from a frame
+; drawn and from the wait between them, whose polling for events leaves
+; garbage behind as a frame does.
+(def %collect!
+  (fn (_ w now)
+    (when (< 250 (- now (%get w %collected))) (do (Heap collect) (%put! w %collected (%ms))))))
+
 ; Draw the window now: whether the picture is still moving.
 (def %frame!
   (fn (_ w)
@@ -268,7 +275,7 @@
     ; takes a while: the slide is timed from when that frame is shown
     (when (if (null? s) #f (= t 0)) (%put! w %slide (list (first s) (List ref 1 s) (%ms))))
     (%put! w %dirty #f)
-    (when (< 250 (- now (%get w %collected))) (do (Heap collect) (%put! w %collected (%ms))))
+    (%collect! w now)
     ; the bar still easing is drawn again
     (%put! w %dirty moving)))
 
@@ -401,6 +408,7 @@
     (%pump! w)
     (when (< 1000 (- (%ms) (%get w %checked))) (%rescale! w))
     (%refresh! w)
+    (%collect! w (%ms))
     (when (if (null? (%get w %queue)) (if (%get w %dirty) #f (not (%moving? w))) #f)
       (do (Sys usleep 8000) (self w)))))
 

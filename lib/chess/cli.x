@@ -7,7 +7,7 @@
 ; @license MIT No Attribution (MIT-0)
 ;
 ;   x -l chess -- [--white|--black|--both] [--fen FEN] [--time S] [--depth N] [--think] [--engine CMD]
-;                  [--book FILE|--no-book] [--window | --web [--listen ADDRESS]]
+;                  [--book FILE|--no-book] [--window | --web [--listen ADDRESS[:PORT]]]
 ;   x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH] [--unsolved] [--random|--one]
 ;   x -l chess -- --uci
 ;   x -l chess -- --perft N [--fen FEN]
@@ -41,10 +41,27 @@
 (import chess/book book-use!)
 (import chess/tables tables-dir tables-allow-build! tables-build!)
 
+; The ports --web tries in turn when none is asked for, the last any free one.
+(def %web-ports (list 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 0))
+
+; What --listen's value asks for, (ADDRESS . PORTS): ADDRESS alone and
+; the ports above, ADDRESS:PORT and that port alone, or :PORT on
+; 127.0.0.1; () when the port is not one.
+(def %listen-of
+  (fn (_ a)
+    (def n (str-byte-len a))
+    (def colon ((fn (self i) (match ((< i 0) -1) ((= (str-byte-ref a i) 58) i) (#t (self (- i 1))))) (- n 1)))
+    (if (< colon 0) (pair a %web-ports)
+      ((fn (_ port)
+         (if (if (null? port) #f (if (< 0 port) (< port 65536) #f))
+           (pair (if (= colon 0) "127.0.0.1" (str-byte-sub a 0 colon)) (list port))
+           ()))
+       (parse-int (str-byte-sub a (+ colon 1) (- n (+ colon 1))))))))
+
 (def %usage
   (Str8 join "\n"
     (list "usage: x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]"
-          "                         [--board wood|green|blue|grey|ascii] [--book FILE|--no-book] [--window | --web [--listen ADDRESS]]"
+          "                         [--board wood|green|blue|grey|ascii] [--book FILE|--no-book] [--window | --web [--listen ADDRESS[:PORT]]]"
           "       x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH] [--unsolved] [--random|--one]"
           "       x -l chess -- --uci"
           "       x -l chess -- --perft N [--fen FEN]"
@@ -55,7 +72,7 @@
           "--line plays it a line at a time instead (help lists the commands), --letters draws"
           "the pieces as letters, --coach judges your moves against the engine's."
           "--window plays it in a window, pieces clicked or dragged; --web in a browser tab"
-          "instead, its address printed, --listen the address to listen on (127.0.0.1)."
+          "instead, its address printed, --listen ADDRESS[:PORT] where to listen (127.0.0.1, 8080 on)."
           "--board draws the board in a theme: wood (the default), green, blue, grey, or ascii,"
           "letters and no colour."
           "--puzzle sets the board's puzzles from the 2,342 x-chess ships, cut from the lichess"
@@ -129,8 +146,9 @@
           (list (pair (lit error) (Str8 append "--board takes one of " (Str8 join ", " (tui-theme-names)))))
           (self (List drop 2 args) (pair (pair (lit board) value) opts))))
       ((str=? a "--listen")
-        (if (null? value) (list (pair (lit error) "--listen takes an address"))
-          (self (List drop 2 args) (pair (pair (lit listen) value) opts))))
+        (if (if (null? value) #t (null? (%listen-of value)))
+          (list (pair (lit error) "--listen takes an address, ADDRESS:PORT or :PORT"))
+          (self (List drop 2 args) (pair (pair (lit listen) (%listen-of value)) opts))))
       ((str=? a "--theme")
         (if (null? value) (list (pair (lit error) "--theme takes a theme: mateIn2, mate, fork, ..."))
           (self (List drop 2 args) (pair (pair (lit theme) value) opts))))
@@ -267,14 +285,14 @@
             (board (do (tables-allow-build! #f) (app-run (board-opts))))
             (#t (play-run io (pair (pair (lit engine) pl) (%game-opts opts)) first-line)))))))
 
-(def %web-ports (list 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 0))
-
 ; --window and --web: the board in a window, or in a browser tab, its
 ; address printed: the exit status.
 (def %window-play
   (fn (_ opts args)
     (def front (if (eq? (%opt opts (lit front)) (lit web)) Web Sdl))
-    (when (eq? front Web) (Web listen! ((fn (_ a) (if (null? a) "127.0.0.1" a)) (%opt opts (lit listen))) %web-ports))
+    (when (eq? front Web)
+      ((fn (_ l) (Web listen! (first l) (rest l)))
+       ((fn (_ l) (if (null? l) (pair "127.0.0.1" %web-ports) l)) (%opt opts (lit listen)))))
     (if (if (eq? front Sdl) (not (Sdl available?)) #f)
       (do (%say 2 "x-chess: no SDL3 to open a window with; --web plays in a browser tab\n") 1)
       ((fn (_ failed)
