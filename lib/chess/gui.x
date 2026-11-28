@@ -22,8 +22,8 @@
 ; piece is a shadow, its outline stroked, its body filled over the
 ; stroke's inner half, the detail, and a light from the left.
 ;
-; Text is gfx/font's strokes, a string drawn once as a mask and kept,
-; then stamped in its colour wherever it is wanted.
+; Text is Roboto, set by gfx/face from its outlines: a string set once
+; as a mask and kept, then stamped in its colour wherever it is wanted.
 ;
 ; Lengths in the piece outlines are hundredths of a square, x from the
 ; middle and y from the top; points handed to gfx/shape are in 256ths
@@ -33,7 +33,7 @@
 
 (import gfx/canvas)
 (import gfx/shape)
-(import gfx/font)
+(import gfx/face)
 (import x/sys/gc)
 (import x/core/doors io-display-to-str char->int str-byte-ref str-byte-len int/ int%)
 (import chess/board PAWN KNIGHT BISHOP ROOK QUEEN KING pos-piece pos-side piece-kind piece-colour sq-make sq-file sq-rank
@@ -347,58 +347,24 @@
 
 ; --- text ---------------------------------------------------------------------------
 
-; A character's advance is 5 of the font's grid, its 4 and 1 of space, a
-; capital 6 high: N characters of cap height H take 5H/6 each, counted
-; in the 256ths the strokes are laid in and rounded up.
-(def %span (fn (_ n h) (int/ (+ (* n 5 (int/ (* h 256) 6)) 255) 256)))
+; A size is the capitals' height H in pixels of the picture and a
+; weight, bold from 17.  The em is H over the capitals' share of it, at
+; the gui's scale, to the nearest pixel.  The faces, Roboto and Roboto
+; Bold, are G's slot %faces as (REGULAR . BOLD).
 
-; The characters TEXT shows, a UTF-8 sequence one: (CODE ...), a code of
-; a character the font has not as 0, but the middle dot and the caret
-; kept as 183 and 9615.
-(def %codes
-  (fn (_ text)
-    (def n (str-byte-len text))
-    (def b (fn (_ i) (if (< i n) (char->int (str-byte-ref text i)) 0)))
-    ((fn (self i acc)
-       (match
-         ((not (< i n)) (List reverse acc))
-         ((< (b i) 128) (self (+ i 1) (pair (b i) acc)))
-         ((< (b i) 192) (self (+ i 1) acc))
-         ((if (= (b i) 194) (= (b (+ i 1)) 183) #f) (self (+ i 2) (pair 183 acc)))
-         ((if (= (b i) 226) (if (= (b (+ i 1)) 150) (= (b (+ i 2)) 143) #f) #f) (self (+ i 3) (pair 9615 acc)))
-         (#t (self (+ i 1) (pair 0 acc)))))
-     0 ())))
+(def %faces 24)
 
-(def %strokes-of
-  (fn (_ code)
-    (match ((= code 183) (list (list (pair 2 3))))
-           ((= code 9615) (list (list (pair 0 -1) (pair 0 7))))
-           ((< code 32) ())
-           ((< 126 code) ())
-           (#t (Font glyph code)))))
+(def %face (fn (_ g weight) ((fn (_ fs) (if (< weight 17) (first fs) (rest fs))) (Vector ref %faces g))))
 
-; TEXT as a mask: (CANVAS PAD WIDTH), its cap H high and its strokes W
-; 256ths wide, the cap's top PAD pixels down and the first character PAD
-; pixels in; WIDTH the advance of the whole.
+(def %em
+  (fn (_ g h weight)
+    (def cap (List ref 3 (Face metrics (%face g weight) 1)))
+    (%max 1 (int/ (+ (* h (%k g) 256) (int/ cap 2)) cap))))
+
+; TEXT as a mask: Face's (CANVAS PAD BASELINE ADVANCE).
 (def %text-mask
-  (fn (_ text h weight)
-    (def codes (%codes text))
-    (def u (int/ (* h 256) 6))
-    (def w (%max 280 (int/ (* h 256 weight) 100)))
-    (def pad (+ 2 (int/ w 256)))
-    (def width (%span (List length codes) h))
-    (def c (Canvas make (+ width (* 2 pad) 1) (+ (int/ (* h 4) 3) (* 2 pad) 1)))
-    (def at (fn (_ i p) (pair (+ (* pad 256) (* i 5 u) (* (first p) u)) (+ (* pad 256) (* (- 6 (rest p)) u)))))
-    (def lines
-      ((fn (self i cs acc)
-         (if (null? cs) acc
-           (self (+ i 1) (rest cs)
-             (List append (List map (fn (_ st) (pair #f (List map (fn (_ p) (at i p)) (if (null? (rest st)) (list (first st) (first st)) st))))
-                            (%strokes-of (first cs)))
-               acc))))
-       0 codes ()))
-    (unless (null? lines) (Shape strokes! c lines w (list 255 255 255)))
-    (list c pad width)))
+  (fn (_ g text h weight)
+    (Face mask (%face g weight) text (%em g h weight))))
 
 ; The masks made, kept in buckets by a few of the key's bytes.
 (def %bucket
@@ -418,30 +384,49 @@
     (if (not (null? hit)) (rest hit)
       (do (when (< 900 (Vector ref 1 g))
             (do (List for-each (fn (_ k) (Vector set! k () buckets)) (List range 0 64)) (Vector set! 1 0 g)))
-          (def m (%text-mask text h weight))
+          (def m (%text-mask g text h weight))
           (Vector set! i (pair (pair key m) (Vector ref i buckets)) buckets)
           (Vector set! 1 (+ 1 (Vector ref 1 g)) g)
           m))))
 
-; TEXT drawn on C with its cap's top left at X Y, H high, in COLOUR:
+; An advance in 256ths of a pixel of the frame as pixels of the picture,
+; rounded up.
+(def %adv-px (fn (_ g a) ((fn (_ d) (int/ (+ a (- d 1)) d)) (* 256 (%k g)))))
+
+; TEXT drawn on C with its capitals' top left at X Y, H high, in COLOUR:
 ; the x after it.
 (def %text!
   (fn (_ g c x y text h weight colour)
     (if (str=? text "") x
       ((fn (_ m k)
          (def mc (first m))
-         (%mark! g (- (* x k) (List ref 1 m)) (- (* y k) (List ref 1 m)) (first mc) (List ref 1 mc))
-         (Canvas stamp! c (- (* x k) (List ref 1 m)) (- (* y k) (List ref 1 m)) mc 0 0 (first mc) (List ref 1 mc) colour)
-         (+ x (%text-w text h)))
-       (%mask-of g text (* h (%k g)) weight) (%k g)))))
+         (def left (- (* x k) (List ref 1 m)))
+         (def top (- (* (+ y h) k) (List ref 2 m)))
+         (%mark! g left top (first mc) (List ref 1 mc))
+         (Canvas stamp! c left top mc 0 0 (first mc) (List ref 1 mc) colour)
+         (+ x (%adv-px g (List ref 3 m))))
+       (%mask-of g text h weight) (%k g)))))
 
-(def %text-w (fn (_ text h) (%span (List length (%codes text)) h)))
+(def %text-w
+  (fn (_ g text h weight)
+    (%adv-px g (Face width (%face g weight) text (%em g h weight)))))
 
-; TEXT cut to N characters, an ellipsis of three dots at the end when cut.
+; TEXT's first N bytes, back to the start of a character.
+(def %cut
+  (fn (self text n)
+    (if (if (< 0 n) ((fn (_ b) (if (< 127 b) (< b 192) #f)) (char->int (str-byte-ref text n))) #f)
+      (self text (- n 1))
+      (Str8 slice 0 n text))))
+
+; TEXT cut to fit W pixels, an ellipsis at the end when cut.
 (def %clip
-  (fn (_ text n)
-    (if (< n (+ (List length (%codes text)) 1)) (if (< (str-byte-len text) n) text (Str8 append (Str8 slice 0 (- n 3) text) "..."))
-      text)))
+  (fn (_ g text h weight w)
+    (def whole (%text-w g text h weight))
+    (if (not (< w whole)) text
+      ((fn (self n)
+         ((fn (_ s) (if (if (< 0 n) (< w (%text-w g s h weight)) #f) (self (- n 1)) s))
+          (Str8 append (%cut text n) "…")))
+       (int/ (* (str-byte-len text) w) whole)))))
 
 ; --- the gui ------------------------------------------------------------------------
 ;
@@ -456,14 +441,16 @@
 ; beside the board, and in the score card, 19 the box last shown and
 ; where its rows and pills stand (see %box-layout), 20 the scale, 21 what
 ; the last frame drew over the still picture and 22 the still it was
-; copied whole from (see %mark!).
+; copied whole from (see %mark!), 23 the masks kept (see %kept-mask) and
+; 24 the faces (see %face).
 
 ; A gui drawing at scale K: its picture K times gui-width by gui-height.
 (def gui-make
   (fn (_ k)
-    (def g (Vector make 24 ()))
+    (def g (Vector make 25 ()))
     (def sq (* k %sq))
     (Vector set! 20 k g)
+    (Vector set! %faces (pair (Face shipped "Roboto-Regular") (Face shipped "Roboto-Bold")) g)
     (Vector set! 0 (Vector make 64 ()) g)
     (Vector set! 1 0 g)
     (Vector set! 2 (Canvas make (* k %width) (* k %height)) g)
@@ -526,8 +513,10 @@
               (def y (* r %sq))
               (%fill! g b x y %sq %sq (if light %light-sq %dark-sq))
               (def ink (if light %dark-sq %light-sq))
-              (when (= c 0) (%text! g b (+ x 5) (+ y 5) (io-display-to-str (+ 1 (sq-rank sq))) 11 15 ink))
-              (when (= r 7) (%text! g b (- (+ x %sq) 13) (- (+ y %sq) 16) (List ref (sq-file sq) %files) 11 15 ink)))
+              (when (= c 0) (%text! g b (+ x 5) (+ y 5) (io-display-to-str (+ 1 (sq-rank sq))) 11 17 ink))
+              (when (= r 7)
+                ((fn (_ f) (%text! g b (- (+ x %sq) 5 (%text-w g f 11 17)) (- (+ y %sq) 16) f 11 17 ink))
+                 (List ref (sq-file sq) %files))))
             (List range 0 64))
           (Vector set! slot b g)
           (Heap collect)))
@@ -566,16 +555,16 @@
 
 (def %row-h 21)
 (def %pill-h 19)
-(def %pill-w (fn (_ label) (+ 18 (%text-w label 10))))
+(def %pill-w (fn (_ g label) (+ 18 (%text-w g label 10 15))))
 
 (def %pills-w
-  (fn (_ pills) (List fold (fn (_ n p) (+ n 6 (%pill-w (first p)))) 0 pills)))
+  (fn (_ g pills) (List fold (fn (_ n p) (+ n 6 (%pill-w g (first p)))) 0 pills)))
 
 ; Where ITEMS' box stands: (X Y W H).
 (def %box-at
-  (fn (_ items)
+  (fn (_ g items)
     (def widest
-      (List fold (fn (_ n it) (%max n (+ (%text-w (List ref 1 it) 10) (if (null? (List ref 3 it)) 0 (+ 24 (%pills-w (List ref 3 it)))))))
+      (List fold (fn (_ n it) (%max n (+ (%row-w g (List ref 1 it)) (if (null? (List ref 3 it)) 0 (+ 24 (%pills-w g (List ref 3 it)))))))
         0 items))
     (def w (+ widest 64))
     (def h (+ 48 (* %row-h (List length items))))
@@ -590,14 +579,14 @@
     (def kept (Vector ref 19 g))
     (if (if (null? kept) #f (equal? (first kept) items)) (rest kept)
       ((fn (_ layout) (Vector set! 19 (pair items layout) g) layout)
-       (do (def b (%box-at items))
+       (do (def b (%box-at g items))
            (def right (- (+ (first b) (List ref 2 b)) 32))
            (def pills
              (fn (_ i ps)
                ((fn (self x ws acc)
                   (if (null? ws) acc
                     (self (- x (first ws) 6) (rest ws) (pair (list (- x (first ws)) (+ (List ref 1 b) 22 (* i %row-h)) (first ws) %pill-h) acc))))
-                right (List reverse (List map (fn (_ p) (%pill-w (first p))) ps)) ())))
+                right (List reverse (List map (fn (_ p) (%pill-w g (first p))) ps)) ())))
            (list b
                  (List map (fn (_ i) (list (+ (first b) 12) (+ (List ref 1 b) 20 (* i %row-h)) (- (List ref 2 b) 24) %row-h))
                    (List range 0 (List length items)))
@@ -663,7 +652,7 @@
     (def button (fn (_) (%index-at (List length %buttons) (fn (_ i) ((fn (_ p) (list (first p) (rest p) %button-w %button-h)) (%button-xy i))) x y)))
     (def nav (fn (_) (if (null? v) () (%index-at 4 (fn (_ i) ((fn (_ p) (list (first p) (rest p) %nav-w %nav-h)) (%nav-xy (List ref 2 (%cards v)) i))) x y))))
     (def move (fn (_) (if (null? v) () (%move-hit v x y))))
-    (def over (if (null? v) () (%over-hit v x y)))
+    (def over (if (null? v) () (%over-hit g v x y)))
     (match
       ((not (null? items)) (%box-hit g items x y))
       ((not (null? over)) (list (lit key) over))
@@ -816,7 +805,7 @@
     (def side (List ref 1 s))
     (def to-move (List ref 2 s))
     (def small (Vector ref 4 g))
-    (when to-move (%box! g c (- %bx 6) (- y 4) (+ 64 (%text-w (first s) 13)) 30 15 (list 52 74 60)))
+    (when to-move (%box! g c (- %bx 6) (- y 4) (+ 64 (%text-w g (first s) 13 15)) 30 15 (list 52 74 60)))
     ; the disc and its ring, each a mask with room for the ring's width
     (def k (%k g))
     (def m (* 3 k))
@@ -879,7 +868,7 @@
     (def button!
       (fn (_ x y w h label on hot live)
         (%box! g c x y w h 8 (match (on (list 58 86 136)) ((if hot live #f) (list 58 64 78)) (#t (if (< h 30) %card-hi %card))))
-        (%text! g c (+ x (int/ (- w (%text-w label 10)) 2)) (+ y (int/ (- h 10) 2)) label 10 15 (match ((not live) %faint) (hot %ink) (#t %dim)))))
+        (%text! g c (+ x (int/ (- w (%text-w g label 10 15)) 2)) (+ y (int/ (- h 10) 2)) label 10 15 (match ((not live) %faint) (hot %ink) (#t %dim)))))
     (def buttons!
       (fn (_ clear)
         (List for-each
@@ -931,8 +920,8 @@
 (def %note!
   (fn (_ g c y title note)
     (unless (str=? note "")
-      ((fn (_ x) (%text! g c x (+ y 15) (%clip note (int/ (- (+ %px %pw) x 16) 8)) 9 14 %faint))
-       (+ %px 28 (%text-w title 10))))))
+      ((fn (_ x) (%text! g c x (+ y 15) (%clip g note 9 14 (- (+ %px %pw) x 16)) 9 14 %faint))
+       (+ %px 28 (%text-w g title 10 17))))))
 
 (def %score-colour
   (fn (_ text) (match ((str=? text "") %dim) ((= (char->int (str-byte-ref text 0)) 45) (list 214 140 120)) (#t %ink))))
@@ -941,20 +930,21 @@
   (fn (_ g c v ui)
     (def cards (%cards v))
     ; the game
-    (%text! g c (+ %px 16) 28 (%clip (%view-of v (lit title)) 46) 11 16 %ink)
+    (def inner (- %pw 32))
+    (%text! g c (+ %px 16) 28 (%clip g (%view-of v (lit title)) 11 16 inner) 11 16 %ink)
     (def msg (%view-of v (lit msg)))
     (def over (%view-of v (lit over)))
     (def mover ((fn (_ s) (if (List ref 2 (first s)) (first s) (if (List ref 2 (List ref 1 s)) (List ref 1 s) ()))) (%view-of v (lit strips))))
     (match
-      ((not (str=? msg "")) (%text! g c (+ %px 16) 54 (%clip msg 52) 10 14 %amber))
-      ((not (null? over)) (%text! g c (+ %px 16) 54 (%clip over 52) 10 14 %amber))
+      ((not (str=? msg "")) (%text! g c (+ %px 16) 54 (%clip g msg 10 14 inner) 10 14 %amber))
+      ((not (null? over)) (%text! g c (+ %px 16) 54 (%clip g over 10 14 inner) 10 14 %amber))
       ((not (null? mover)) (%text! g c (+ %px 16) 54 (Str8 append (first mover) " to move") 10 14 %green))
       (#t ()))
     ; the score
     (%note! g c 96 "SCORE" (%view-of v (lit standing)))
     (def score (%view-of v (lit score)))
     (%text! g c (+ %px 16) 136 (if (str=? score "") "--" score) 26 16 (%score-colour score))
-    (%text! g c (+ %px 16) 174 (%clip (%view-of v (lit detail)) 50) 9 14 %faint)
+    (%text! g c (+ %px 16) 174 (%clip g (%view-of v (lit detail)) 9 14 inner) 9 14 %faint)
     ; the suggestions
     (def sy (first cards))
     (when (< -1 sy)
@@ -968,7 +958,7 @@
               (%text! g c (+ %px 16) y (io-display-to-str (+ i 1)) 10 15 %faint)
               (%text! g c (+ %px 36) y (first row) 11 17 (if (= i 0) %blue %ink))
               (%text! g c (+ %px 112) y (List ref 1 row) 10 15 (%score-colour (List ref 1 row)))
-              (%text! g c (+ %px 180) (+ y 1) (%clip (List ref 2 row) 28) 9 14 %dim))
+              (%text! g c (+ %px 180) (+ y 1) (%clip g (List ref 2 row) 9 14 (- %pw 196)) 9 14 %dim))
             (List range 0 (%min 3 (List length rows))))))
     ; the engine's thinking
     (def ey (List ref 1 cards))
@@ -976,7 +966,7 @@
       (do (%note! g c ey "ENGINE" (%view-of v (lit stats)))
           (def thinking (%view-of v (lit thinking)))
           (List for-each
-            (fn (_ i) (%text! g c (+ %px 16) (+ ey 36 (* i 18)) (%clip (Str8 trim (List ref i thinking)) 52) 9 14 (if (= i 0) %ink %faint)))
+            (fn (_ i) (%text! g c (+ %px 16) (+ ey 36 (* i 18)) (%clip g (Str8 trim (List ref i thinking)) 9 14 inner) 9 14 (if (= i 0) %ink %faint)))
             (List range 0 (%min 4 (List length thinking))))))
     ; the moves
     (def my (List ref 2 cards))
@@ -1044,6 +1034,41 @@
 
 (def %keys-items (List map (fn (_ l) (list l l () ())) %keys))
 
+; A box's row is set as the terminal sets it, in columns of characters:
+; a run of two spaces or more that does not follow a full stop begins a
+; cell at its character's column, a column the width of a digit.  The
+; cells of TEXT: ((COLUMN . TEXT) ...).
+(def %cells
+  (fn (_ text)
+    (def n (str-byte-len text))
+    (def b (fn (_ i) (char->int (str-byte-ref text i))))
+    (def next (fn (_ i col) (if (if (< 127 (b i)) (< (b i) 192) #f) col (+ col 1))))
+    ; byte I, COL the column the next character takes, the cell begun at
+    ; byte FROM in column AT, SP the spaces just passed
+    ((fn (self i col from at sp acc)
+       (def close (fn (_ end) (if (< from end) (pair (pair at (Str8 slice from end text)) acc) acc)))
+       (match
+         ((not (< i n)) (List reverse (close (- n sp))))
+         ((= (b i) 32) (self (+ i 1) (+ col 1) from at (+ sp 1) acc))
+         ((if (< 1 sp) (if (< from (- i sp)) (not (= (b (- i (+ sp 1))) 46)) #f) #f)
+          (self (+ i 1) (next i col) i col 0 (close (- i sp))))
+         (#t (self (+ i 1) (next i col) from at 0 acc))))
+     0 0 0 0 0 ())))
+
+; A column's width, in 256ths of a pixel of the picture.
+(def %col-w (fn (_ g) (int/ (Face width (%face g 14) "0" (%em g 10 14)) (%k g))))
+
+(def %row-w
+  (fn (_ g text)
+    ((fn (_ cs) (if (null? cs) 0 ((fn (_ l) (+ (int/ (* (first l) (%col-w g)) 256) (%text-w g (rest l) 10 14))) (List last cs))))
+     (%cells text))))
+
+; Row TEXT drawn at X Y in COLOUR, its cells in their columns.
+(def %row!
+  (fn (_ g c x y text colour)
+    (def w (%col-w g))
+    (List for-each (fn (_ cell) (%text! g c (+ x (int/ (* (first cell) w) 256)) y (rest cell) 10 14 colour)) (%cells text))))
+
 ; Row I of the box of ITEMS, the key HOT lit: its band when it is the
 ; row's, a pill when it is the pill's.
 (def %draw-row!
@@ -1055,7 +1080,7 @@
     (def row-key (List ref 2 it))
     (when (if (null? row-key) #f (equal? row-key hot))
       ((fn (_ r) (%box! g c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 6 (list 58 64 78))) (List ref i (List ref 1 layout))))
-    (%text! g c (+ (first b) 32) (+ (List ref 1 b) 26 (* i %row-h)) (List ref 1 it) 10 14 (if (if (null? row-key) (null? pills) #f) %dim %ink))
+    (%row! g c (+ (first b) 32) (+ (List ref 1 b) 26 (* i %row-h)) (List ref 1 it) (if (if (null? row-key) (null? pills) #f) %dim %ink))
     (List for-each
       (fn (_ j)
         (def p (List ref j pills))
@@ -1087,8 +1112,8 @@
 ; The game's end, over the board, with its buttons: a new game, a move
 ; taken back.
 (def %over-at
-  (fn (_ text)
-    (def w (%max 360 (+ 60 (%text-w text 16))))
+  (fn (_ g text)
+    (def w (%max 360 (+ 60 (%text-w g text 16 17))))
     (list (+ %bx (int/ (- (* 8 %sq) w) 2)) (+ %by (* 3 %sq) 10) w 116)))
 
 (def %over-buttons (list (list "New game" "n") (list "Take back" "u")))
@@ -1099,19 +1124,19 @@
     (list (+ (first o) (int/ (List ref 2 o) 2) (if (= i 0) (- 0 bw 6) 6)) (+ (List ref 1 o) 66) bw 30)))
 
 (def %over-hit
-  (fn (_ v x y)
+  (fn (_ g v x y)
     (def text (%view-of v (lit over)))
     (if (if (null? text) #t (not (null? (%view-of v (lit promo))))) ()
       ((fn (_ o) ((fn (_ i) (if (null? i) () (List ref 1 (List ref i %over-buttons)))) (%index-at 2 (fn (_ i) (%over-button o i)) x y)))
-       (%over-at text)))))
+       (%over-at g text)))))
 
 ; The card at the game's end, its button HOT lit, or none for ().
 (def %draw-over!
   (fn (_ g c v hot)
     (def text (%view-of v (lit over)))
-    (def o (%over-at text))
+    (def o (%over-at g text))
     (%box! g c (first o) (List ref 1 o) (List ref 2 o) 116 14 (list 28 31 38 235))
-    (%text! g c (+ (first o) (int/ (- (List ref 2 o) (%text-w text 16)) 2)) (+ (List ref 1 o) 30) text 16 17 %ink)
+    (%text! g c (+ (first o) (int/ (- (List ref 2 o) (%text-w g text 16 17)) 2)) (+ (List ref 1 o) 30) text 16 17 %ink)
     (List for-each (fn (_ i) (%draw-over-button! g c o i hot)) (list 0 1))))
 
 (def %draw-over-button!
@@ -1120,7 +1145,7 @@
     (def r (%over-button o i))
     (def live (equal? hot (List ref 1 bt)))
     (%box! g c (first r) (List ref 1 r) (List ref 2 r) (List ref 3 r) 8 (if live (list 70 77 94) (list 46 51 62)))
-    (%text! g c (+ (first r) (int/ (- (List ref 2 r) (%text-w (first bt) 10)) 2)) (+ (List ref 1 r) 10) (first bt) 10 15 (if live %ink %dim))))
+    (%text! g c (+ (first r) (int/ (- (List ref 2 r) (%text-w g (first bt) 10 15)) 2)) (+ (List ref 1 r) 10) (first bt) 10 15 (if live %ink %dim))))
 
 ; Whether the card at the game's end is shown, and whether it is in the
 ; still picture: it is when no piece slides, which a frame draws over
@@ -1135,22 +1160,22 @@
     ((fn (_ hot)
        (unless (null? hot)
          ((fn (_ o) (List for-each (fn (_ i) (when (equal? hot (List ref 1 (List ref i %over-buttons))) (%draw-over-button! g c o i hot))) (list 0 1)))
-          (%over-at (%view-of v (lit over))))))
-     (%over-hit v (Vector ref 0 ui) (Vector ref 1 ui)))))
+          (%over-at g (%view-of v (lit over))))))
+     (%over-hit g v (Vector ref 0 ui) (Vector ref 1 ui)))))
 
 ; A move or a command being typed, at the board's foot.
 (def %draw-input!
   (fn (_ g c v)
     (def cmd (%view-of v (lit command)))
     (def input (%view-of v (lit input)))
-    (def text (match ((not (null? cmd)) (Str8 append ":" cmd "▏"))
-                     ((not (str=? input "")) (Str8 append "Move: " input "▏   Enter plays it, Esc clears"))
+    (def text (match ((not (null? cmd)) (Str8 append ":" cmd "|"))
+                     ((not (str=? input "")) (Str8 append "Move: " input "|   Enter plays it, Esc clears"))
                      (#t "")))
     (unless (str=? text "")
       ((fn (_ w)
          (%box! g c (+ %bx (int/ (- (* 8 %sq) w) 2)) (- (+ %by (* 8 %sq)) 60) w 40 12 (list 28 31 38 240))
          (%text! g c (+ %bx (int/ (- (* 8 %sq) w) 2) 20) (- (+ %by (* 8 %sq)) 46) text 12 16 %ink))
-       (+ 40 (%text-w text 12))))))
+       (+ 40 (%text-w g text 12 16))))))
 
 ; The square under the pointer a dragged piece would be let go on, or -1.
 (def %drop
@@ -1218,7 +1243,7 @@
           (%draw-move-hover! g c v ui)
           (%draw-promo! g c v)
           (if (%over-still? v ui) (%draw-over-hot! g c v ui)
-            (when (%over-shown? v) (%draw-over! g c v (%over-hit v (Vector ref 0 ui) (Vector ref 1 ui)))))
+            (when (%over-shown? v) (%draw-over! g c v (%over-hit g v (Vector ref 0 ui) (Vector ref 1 ui)))))
           (%draw-input! g c v))
       ; a box shown is in the still picture, its row under the pointer lit
       (do (%tint! g c %bar-x %by %bar-w (* 8 %sq) (list 0 0 0 120))
