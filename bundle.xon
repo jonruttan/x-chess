@@ -6,9 +6,9 @@
 ; ambient: the terminal and the clock, none of the tower.
 (dialect he)
 
-(requires-release "v0.63.0")
+(requires-release "v0.65.0")
 
 ; The window board draws with the graphics library.
-(requires-bundle "gfx" "v0.1.0" "jonruttan/x-lib-gfx")
+(requires-bundle "gfx" "v0.2.0" "jonruttan/x-lib-gfx")
 
 (entry run)
