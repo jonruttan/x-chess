@@ -7,7 +7,7 @@ loaded as a lang: a game against the engine at the terminal, and the
 Universal Chess Interface for chess GUIs and other engines.
 
     x -l chess -- [--white|--black|--both] [--fen FEN] [--time SECONDS] [--depth N] [--think] [--engine CMD] [--line] [--letters] [--coach]
-                  [--board wood|green|blue|grey|ascii] [--book FILE|--no-book] [--window | --web [--listen ADDRESS]]
+                  [--board wood|green|blue|grey|ascii] [--book FILE|--no-book] [--window | --web [--listen ADDRESS[:PORT]]]
     x -l chess -- --puzzle | --puzzles FILE [--theme THEME] [--rating LOW-HIGH] [--unsolved] [--random|--one]
     x -l chess -- --uci
     x -l chess -- --perft N [--fen FEN]
@@ -73,8 +73,9 @@ and `:` takes a command: `fen FEN`, `time S`, `depth N`, `engine CMD`,
 
 `--window` plays the same game in a window of its own, through SDL3;
 `--web` plays it in a browser tab, the page's address printed, for
-when SDL3 is not there (`--listen ADDRESS` to listen on other than
-127.0.0.1).  The board is drawn with x-chess's own pieces: a piece is
+when SDL3 is not there.  It listens on 127.0.0.1, on the first free
+port from 8080; `--listen ADDRESS`, `ADDRESS:PORT` or `:PORT` says
+where instead.  The board is drawn with x-chess's own pieces: a piece is
 clicked and then its square, or dragged there, and a move slides.  The
 bar beside the board eases to each new score, and the panel holds the
 score, the engine's suggestions (s), its thinking and the moves.  The

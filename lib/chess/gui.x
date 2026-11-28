@@ -863,7 +863,10 @@
     (def hover (%hover-key g v ui))
     (def back (< 0 (%view-of v (lit ply))))
     (def ahead (< -1 (%view-of v (lit review))))
-    (def key (list view cards hover (%view-of v (lit suggesting)) back ahead))
+    ; what m does now, said on its button: in a puzzle it shows the move,
+    ; on your move the engine plays for you, else it stops thinking and moves
+    (def m-label ((fn (_ m) (match ((eq? m (lit show)) "Show move") ((eq? m (lit play)) "Play for me") (#t "Move now"))) (%view-of v (lit m-does))))
+    (def key (list view cards hover (%view-of v (lit suggesting)) back ahead m-label))
     (def c (Vector ref 8 g))
     (def button!
       (fn (_ x y w h label on hot live)
@@ -876,7 +879,7 @@
             (def bt (List ref i %buttons))
             (def xy (%button-xy i))
             (when clear (%fill! g c (- (first xy) 1) (- (rest xy) 1) (+ %button-w 2) (+ %button-h 2) %bg))
-            (button! (first xy) (rest xy) %button-w %button-h (first bt)
+            (button! (first xy) (rest xy) %button-w %button-h (if (str=? (List ref 1 bt) "m") m-label (first bt))
               (if (str=? (List ref 1 bt) "s") (%view-of v (lit suggesting)) #f) (equal? hover (List ref 1 bt)) #t))
           (List range 0 (List length %buttons)))
         ; the steps through the game

@@ -263,6 +263,20 @@ Suggestions are off.
   .......       .......       .......       ~~~~~~~
 ```
 
+### a new game turns them off: it opens with no move marked
+
+```chess
+(def st (tui-make ()))
+(tui-key! st "s")
+(def on (rest (Assoc find (lit suggesting) (tui-view st))))
+(tui-key! st "n")
+(write (list on (rest (Assoc find (lit suggesting) (tui-view st))) (tui-suggest-wanted st)))
+```
+---
+```output
+(#t #f ())
+```
+
 ### not wanted when it is not your move, and not in a puzzle
 
 ```chess

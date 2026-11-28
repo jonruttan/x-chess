@@ -858,6 +858,8 @@
     (%put! st %game (game-new fen))
     (%put! st %sel -1) (%put! st %review -1) (%put! st %hint 0) (%put! st %promo ())
     (%put! st %eval ()) (%put! st %puzzle ()) (%put! st %expect ())
+    ; a new game opens with no move marked: suggestions are asked for again
+    (%put! st %suggest #f)
     (tui-thinking-clear! st)
     (%put! st %msg "A new game.")))
 
@@ -1671,6 +1673,9 @@
           (pair (lit help) (%get st %help))
           (pair (lit choice) (match ((%get st %choose) (%choice-items st)) ((%get st %settings) (%settings-items st)) (#t ())))
           (pair (lit puzzle) (not (null? (%get st %puzzle))))
+          ; what m does now: shows a puzzle's move, plays your move for
+          ; you, or has the engine stop thinking and move
+          (pair (lit m-does) (match ((not (null? (%get st %puzzle))) (lit show)) ((tui-engine-to-move? st) (lit stop)) (#t (lit play))))
           (pair (lit review) (%get st %review)))))
 
 (provide chess/tui tui-make tui-game tui-quit? tui-engine tui-depth tui-ms tui-analysing? tui-message!
